@@ -1,0 +1,21 @@
+node_modules/
+dist/
+*.log
+
+# SQLite database (also holds Google OAuth access/refresh tokens)
+server/data/*.sqlite
+server/data/*.sqlite-*
+
+# Env / secret files — never commit (but keep the *.env.example templates)
+**/.env
+**/.env.*
+!**/.env.example
+
+# Keys & credentials
+auth/
+**/client_secret*.json
+**/*service-account*.json
+*.pem
+*.key
+*.p12
+*.pfx
