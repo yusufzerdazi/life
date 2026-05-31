@@ -16,6 +16,7 @@ import {
   Target,
 } from "lucide-react";
 import { api } from "./api.js";
+import { navigate } from "./nav.js";
 
 function GoalIcon({ goal, className = "size-5 shrink-0 text-slate-400" }) {
   const n = goal.name.toLowerCase();
@@ -205,9 +206,9 @@ export default function App() {
       <footer className="flex flex-col items-center gap-2 text-center">
         <Integrations onSynced={refresh} />
         <ApiHint />
-        <a className={`inline-block ${LINK}`} href="/dashboard">
+        <button className={LINK} onClick={() => navigate("/dashboard")}>
           Open wall dashboard ↗
-        </a>
+        </button>
       </footer>
     </div>
   );

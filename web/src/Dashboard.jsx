@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Footprints, Dumbbell, Moon, Brain, Flower2, Check, Flame, Target, BatteryCharging } from "lucide-react";
 import { api } from "./api.js";
+import { useFullscreen, FullscreenButton } from "./fullscreen.jsx";
 
 function todayStr() {
   const d = new Date();
@@ -191,6 +192,7 @@ export default function Dashboard() {
   const [history, setHistory] = useState(null);
   const [clock, setClock] = useState("");
   const [vp, setVp] = useState({ w: window.innerWidth, h: window.innerHeight });
+  const { fs, toggle: toggleFs } = useFullscreen();
 
   useEffect(() => {
     const onResize = () => setVp({ w: window.innerWidth, h: window.innerHeight });
@@ -275,7 +277,10 @@ export default function Dashboard() {
           </div>
           <div className="text-[clamp(0.8rem,2vw,1.6rem)] font-medium text-slate-400">{clock}</div>
         </div>
-        <Ring done={doneCount} total={goals.length} pct={pct} />
+        <div className="flex shrink-0 items-center gap-[clamp(0.5rem,1.5vw,1.25rem)]">
+          <FullscreenButton fs={fs} toggle={toggleFs} />
+          <Ring done={doneCount} total={goals.length} pct={pct} />
+        </div>
       </header>
 
       <div

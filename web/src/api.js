@@ -20,8 +20,10 @@ async function req(method, path, body) {
 
 export const api = {
   getDay: (date) => req("GET", `/day?date=${date}`),
-  // fields: { done?, time?, bedTime?, wakeTime? }
+  // fields: { done?, bedTime?, upTime?, sleepTime?, wakeTime?, asleepMinutes? }
   setDay: (goalId, date, fields) => req("PUT", "/day", { goalId, date, ...fields }),
+  // report by goal name (e.g. { goal: "sleep", bedTime: "23:10" }); applies date attribution
+  report: (body) => req("POST", "/report", body),
   getGoals: () => req("GET", "/goals"),
   addGoal: (name, kind = "check") => req("POST", "/goals", { name, kind }),
   renameGoal: (id, name) => req("PATCH", `/goals/${id}`, { name }),

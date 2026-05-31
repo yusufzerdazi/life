@@ -2,9 +2,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 
-import { setLog, findGoal } from "../logs.js";
+import { setLog, findGoal, sleepDayStart } from "../logs.js";
 import { getMeta, setMeta } from "../meta.js";
-import { todayStr } from "../util.js";
+import { todayStr, shiftDay } from "../util.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const AUTH_DIR = join(__dirname, "..", "..", "..", "auth");
@@ -136,11 +136,31 @@ function localHM(rfc3339, offsetStr) {
   return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
 }
 
+// Same instant, local YYYY-MM-DD.
+function localDate(rfc3339, offsetStr) {
+  const off = parseInt(offsetStr || "0", 10) * 1000;
+  return new Date(Date.parse(rfc3339) + off).toISOString().slice(0, 10);
+}
+
 function classifyExercise(exerciseType) {
   const t = String(exerciseType || "").toUpperCase();
   if (t.includes("RUN")) return "run";
   if (t.includes("YOGA")) return "yoga";
   return "workout";
+}
+
+// Comma-separated list of dataSource.application.packageName values to accept.
+// Empty/unset = accept all sources.
+function allowedSources() {
+  const v = process.env.GOOGLE_DATA_SOURCES;
+  if (!v) return null;
+  const set = new Set(v.split(",").map((s) => s.trim()).filter(Boolean));
+  return set.size ? set : null;
+}
+function fromAllowedSource(point, allowed) {
+  if (!allowed) return true;
+  const pkg = point?.dataSource?.application?.packageName;
+  return !!pkg && allowed.has(pkg);
 }
 
 async function listDataPoints(token, dataType, filter) {
@@ -169,58 +189,110 @@ export async function syncGoogleHealth() {
 
   const today = todayStr();
   const tomorrow = dayShift(1);
+  const yesterday = dayShift(-1);
+  const allowed = allowedSources();
   const result = { ok: true };
 
-  // Exercise -> Exercise (ran/workedOut) and Yoga goals
+  // Exercise -> Exercise (ran/workedOut) and Yoga goals.
+  // Each activity is attributed to its own date (the activity's local start
+  // date), with the same early-hours rule as /api/report: events before that
+  // date's get-up time roll back to the previous day.
   try {
     const exGoal = findGoal(goalName("GOOGLE_EXERCISE_GOAL", "Exercise"));
     const yogaGoal = findGoal(goalName("GOOGLE_YOGA_GOAL", "Yoga"));
     const points = await listDataPoints(
       token,
       "exercise",
-      `exercise.interval.civil_start_time >= "${today}" AND exercise.interval.civil_start_time < "${tomorrow}"`
+      `exercise.interval.civil_start_time >= "${yesterday}" AND exercise.interval.civil_start_time < "${tomorrow}"`
     );
-    let ran = false, workedOut = false, yoga = false;
+    const summarize = (p) => {
+      const ds = p?.dataSource || {};
+      const dev = ds.device || {};
+      return JSON.stringify({
+        pkg: ds.application?.packageName || null,
+        manufacturer: dev.manufacturer || null,
+        model: dev.model || null,
+        formFactor: dev.formFactor || null,
+      });
+    };
+    result.exerciseSources = [...new Set(points.map(summarize))].map((s) => JSON.parse(s));
+
+    const byDate = new Map();
     for (const p of points) {
-      const kind = classifyExercise(p.exercise?.exerciseType);
-      if (kind === "run") ran = true;
-      else if (kind === "yoga") yoga = true;
-      else workedOut = true;
+      if (!fromAllowedSource(p, allowed)) continue;
+      const ex = p.exercise;
+      if (!ex?.interval?.startTime) continue;
+      const rawDate = localDate(ex.interval.startTime, ex.interval.startUtcOffset);
+      const time = localHM(ex.interval.startTime, ex.interval.startUtcOffset);
+      const start = sleepDayStart(rawDate) || process.env.DAY_START || "05:00";
+      const [sh, sm] = start.split(":").map(Number);
+      const [th, tm] = time.split(":").map(Number);
+      const date = th * 60 + tm < sh * 60 + sm ? shiftDay(rawDate, -1) : rawDate;
+      const kind = classifyExercise(ex.exerciseType);
+      if (!byDate.has(date)) byDate.set(date, { ran: false, workedOut: false, yoga: false });
+      const agg = byDate.get(date);
+      if (kind === "run") agg.ran = true;
+      else if (kind === "yoga") agg.yoga = true;
+      else agg.workedOut = true;
     }
-    if (exGoal && (ran || workedOut)) {
-      const fields = {};
-      if (ran) fields.ran = true;
-      if (workedOut) fields.workedOut = true;
-      setLog(exGoal, today, fields);
+    const dates = [];
+    const aggAll = { ran: false, workedOut: false, yoga: false, sessions: points.length };
+    for (const [date, agg] of byDate) {
+      if (exGoal && (agg.ran || agg.workedOut)) {
+        const fields = {};
+        if (agg.ran) fields.ran = true;
+        if (agg.workedOut) fields.workedOut = true;
+        setLog(exGoal, date, fields);
+      }
+      if (yogaGoal && agg.yoga) setLog(yogaGoal, date, { done: true });
+      dates.push({ date, ...agg });
+      if (agg.ran) aggAll.ran = true;
+      if (agg.workedOut) aggAll.workedOut = true;
+      if (agg.yoga) aggAll.yoga = true;
     }
-    if (yogaGoal && yoga) setLog(yogaGoal, today, { done: true });
-    result.exercise = { ran, workedOut, yoga, sessions: points.length };
+    result.exercise = aggAll;
+    if (dates.length) result.exerciseDates = dates;
   } catch (e) {
     result.exerciseError = e.message;
   }
 
-  // Sleep -> Sleep goal (bed/wake separately from tracked asleep minutes)
+  // Sleep -> Sleep goal. Each session is attributed to its actual wake date
+  // (local), NOT to "today" — otherwise re-syncs would copy the most recent
+  // session onto every new day until fresh data arrives.
   try {
     const sleepGoal = findGoal(goalName("GOOGLE_SLEEP_GOAL", "Sleep"));
-    // Sleep doesn't accept the interval time filter, so list recent and pick the
-    // most recent session (last night's sleep).
     const points = await listDataPoints(token, "sleep");
-    const latest = points
+    const summarize = (p) => {
+      const ds = p?.dataSource || {};
+      const dev = ds.device || {};
+      return JSON.stringify({
+        pkg: ds.application?.packageName || null,
+        manufacturer: dev.manufacturer || null,
+        model: dev.model || null,
+        formFactor: dev.formFactor || null,
+      });
+    };
+    result.sleepSources = [...new Set(points.map(summarize))].map((s) => JSON.parse(s));
+    const sessions = points
+      .filter((p) => fromAllowedSource(p, allowed))
       .map((p) => p.sleep)
       .filter((s) => s?.interval?.endTime)
-      .sort((a, b) => Date.parse(b.interval.endTime) - Date.parse(a.interval.endTime))[0];
+      .sort((a, b) => Date.parse(a.interval.endTime) - Date.parse(b.interval.endTime)); // oldest first: latest for a date wins
 
-    if (sleepGoal && latest) {
-      // Google Health gives when you actually slept/woke (not phone-charge bed/up).
-      const sleepTime = localHM(latest.interval.startTime, latest.interval.startUtcOffset);
-      const wakeTime = localHM(latest.interval.endTime, latest.interval.endUtcOffset);
-      const asleepMinutes = latest.summary?.minutesAsleep != null ? Number(latest.summary.minutesAsleep) : null;
-      setLog(sleepGoal, today, { sleepTime, wakeTime });
-      if (asleepMinutes != null) setLog(sleepGoal, today, { asleepMinutes });
-      result.sleep = { sleepTime, wakeTime, asleepMinutes };
-    } else {
-      result.sleep = null;
+    const written = [];
+    if (sleepGoal) {
+      for (const s of sessions) {
+        const date = localDate(s.interval.endTime, s.interval.endUtcOffset);
+        const sleepTime = localHM(s.interval.startTime, s.interval.startUtcOffset);
+        const wakeTime = localHM(s.interval.endTime, s.interval.endUtcOffset);
+        const asleepMinutes = s.summary?.minutesAsleep != null ? Number(s.summary.minutesAsleep) : null;
+        setLog(sleepGoal, date, { sleepTime, wakeTime });
+        if (asleepMinutes != null) setLog(sleepGoal, date, { asleepMinutes });
+        written.push({ date, sleepTime, wakeTime, asleepMinutes });
+      }
     }
+    result.sleep = written[written.length - 1] || null;
+    result.sleepSessions = written.length;
   } catch (e) {
     result.sleepError = e.message;
   }

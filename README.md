@@ -71,6 +71,19 @@ midnight. The grid adapts to the screen — it picks a balanced near-square layo
 for portrait, landscape, or square displays. It only reads (no API key needed)
 and has no controls, so it's safe to leave running on a kiosk.
 
+It **goes fullscreen** on the first tap (browsers require a gesture) or via the
+⤢ button in the header; the `/bed` prompt does the same. Navigation between
+views is in-app (no reload), so fullscreen persists from `/bed` back to
+`/dashboard`.
+
+### Bedtime prompt (`/bed`)
+
+Point your phone's "started charging" automation at **`/bed`**. It shows a
+full-screen **"Charging for the night?"** prompt: tap **Yes** to log the current
+time as that night's bedtime (an evening time is attributed to the next day's
+sleep entry automatically), or **No** to dismiss. Either way it returns to
+`/dashboard`. (Yes performs a write, so it uses the bundled `VITE_API_KEY`.)
+
 ### Open it from another device on your network
 
 The wall device must reach your computer by its **LAN IP** (not `localhost`).
@@ -115,7 +128,9 @@ Reads are open; **writes require the API key** via header
     `"yyyy-MM-dd HH:mm"` (or with `T`) — the date sets the entry day. A PM
     `bedTime` (noon–23:59) with no explicit `date` is attributed to the **next
     day's** entry — the morning you wake — so it lands with that night's
-    up/sleep/wake.
+    up/sleep/wake. Once a `bedTime`/`upTime` is set for a date, **repeat reports
+    for it are discarded** (first one wins, so re-plugging the phone won't move
+    it). Use the UI's sleep editor to correct a value.
   - **Google Health** (auto): `{ "sleepTime"?, "wakeTime"?, "asleepMinutes"? }`
     (or `"sleepHours"`) — when you actually slept/woke.
   `done` is true only when: time in bed ≥ 7.5h (bed→up phone charge; falls back
@@ -126,6 +141,14 @@ Reads are open; **writes require the API key** via header
   (ideally both). Google Health sets these automatically (see below).
 
 All times accept `"HH:MM"` or `"HH.MM"` (24-hour).
+
+**Day boundary.** A `/api/report` with no explicit `date` that arrives in the
+early hours is attributed to the **previous day** — the day "starts" when you
+get up, not at midnight. The boundary is today's recorded get-up time (`up`/
+`wake`); before that's logged it falls back to `DAY_START` (default `05:00`). So
+yoga at 03:00 counts toward yesterday, and on a late night (up at 13:00) events
+before 13:00 still count toward the prior day. (Auto-detected Google Health
+activities are attributed by their own date; this rule applies to `/api/report`.)
 
 ### Report progress via API
 

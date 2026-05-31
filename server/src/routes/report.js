@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { requireApiKey } from "../auth.js";
-import { setLog, findGoal } from "../logs.js";
+import { setLog, findGoal, sleepDayStart } from "../logs.js";
 import { todayStr, isValidDate, shiftDay } from "../util.js";
 
 export const reportRouter = Router();
@@ -61,10 +61,21 @@ reportRouter.post("/", requireApiKey, (req, res) => {
           if (Number.isFinite(bh) && bh >= 12) date = shiftDay(date, 1);
         }
       }
+    } else if (!req.body?.date) {
+      // Non-sleep events in the early hours belong to the previous day — the
+      // "day" starts when you get up (today's up/wake time), not at midnight.
+      // Falls back to DAY_START (default 05:00) before you've gotten up.
+      const start = sleepDayStart(date) || process.env.DAY_START || "05:00";
+      const [sh, sm] = start.split(":").map(Number);
+      const now = new Date();
+      if (now.getHours() * 60 + now.getMinutes() < sh * 60 + sm) date = shiftDay(date, -1);
     }
-    const entry = setLog(goal, date, {
-      done, bedTime, upTime, sleepTime, wakeTime, asleepMinutes, sleepHours, ran, workedOut,
-    });
+    const entry = setLog(
+      goal,
+      date,
+      { done, bedTime, upTime, sleepTime, wakeTime, asleepMinutes, sleepHours, ran, workedOut },
+      { protectTimes: true } // repeat charge events must not overwrite an already-tracked bed/up time
+    );
     res.json({ goal: { id: goal.id, name: goal.name, kind: goal.kind }, date, ...entry });
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });

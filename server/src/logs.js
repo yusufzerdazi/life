@@ -95,8 +95,12 @@ function formatEntry(goal, row) {
 //   check goals:    { done? }          (simple done / not-done, no time)
 //   sleep goals:    { bedTime?, wakeTime?, asleepMinutes?, sleepHours? }
 //   exercise goals: { ran?, workedOut?, done? }
-export function setLog(goal, date, fields) {
+export function setLog(goal, date, fields, opts = {}) {
   const existing = getStmt.get(goal.id, date);
+  // When protectTimes is set (used by /api/report), a bed/up time that's already
+  // tracked for this date is kept — repeat charge events don't overwrite it.
+  const keepBed = opts.protectTimes && !!existing?.bed_time;
+  const keepUp = opts.protectTimes && !!existing?.up_time;
   const cur = existing || {
     done: 0,
     time: null,
@@ -123,8 +127,8 @@ export function setLog(goal, date, fields) {
     time = null;
     ran = 0;
     worked_out = 0;
-    if (fields.bedTime !== undefined) bed_time = normTime(fields.bedTime);
-    if (fields.upTime !== undefined) up_time = normTime(fields.upTime);
+    if (fields.bedTime !== undefined && !keepBed) bed_time = normTime(fields.bedTime);
+    if (fields.upTime !== undefined && !keepUp) up_time = normTime(fields.upTime);
     if (fields.sleepTime !== undefined) sleep_time = normTime(fields.sleepTime);
     if (fields.wakeTime !== undefined) wake_time = normTime(fields.wakeTime);
     if (fields.asleepMinutes !== undefined) asleep_minutes = normMinutes(fields.asleepMinutes);
@@ -157,6 +161,15 @@ export function setLog(goal, date, fields) {
   if (existing) updateStmt.run(row);
   else insertStmt.run(row);
   return formatEntry(goal, { date, done, time, bed_time, up_time, sleep_time, wake_time, asleep_minutes, ran, worked_out });
+}
+
+// The time "today" actually began for the user — when they got up (today's
+// up/wake on the sleep goal). Returns "HH:MM" or null if not recorded yet.
+export function sleepDayStart(date) {
+  const sleepGoal = db.prepare("SELECT id FROM goals WHERE kind = 'sleep' ORDER BY sort_order, id LIMIT 1").get();
+  if (!sleepGoal) return null;
+  const row = db.prepare("SELECT up_time, wake_time FROM logs WHERE goal_id = ? AND date = ?").get(sleepGoal.id, date);
+  return row ? row.up_time || row.wake_time || null : null;
 }
 
 // Resolve a goal by numeric id or by case-insensitive name.
