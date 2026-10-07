@@ -256,9 +256,12 @@ export async function syncGoogleHealth() {
     result.exerciseError = e.message;
   }
 
-  // Sleep -> Sleep goal. Each session is attributed to its actual wake date
-  // (local), NOT to "today" — otherwise re-syncs would copy the most recent
-  // session onto every new day until fresh data arrives.
+  // Sleep -> Sleep goal. Each session is attributed to the day you went to bed
+  // (the day that's ending): an evening start stays on its own date, but an
+  // after-midnight start (before noon) rolls back to the previous day — the
+  // same rule the phone-charge bedTime uses in /api/report, so both sleep
+  // sources land on the same day. Using the session's own start date (not
+  // "today") keeps re-syncs from copying the most recent session onto every day.
   try {
     const sleepGoal = findGoal(goalName("GOOGLE_SLEEP_GOAL", "Sleep"));
     const points = await listDataPoints(token, "sleep");
@@ -277,15 +280,18 @@ export async function syncGoogleHealth() {
       .filter((p) => fromAllowedSource(p, allowed))
       .map((p) => p.sleep)
       .filter((s) => s?.interval?.endTime)
-      .sort((a, b) => Date.parse(a.interval.endTime) - Date.parse(b.interval.endTime)); // oldest first: latest for a date wins
+      .sort((a, b) => Date.parse(a.interval.startTime) - Date.parse(b.interval.startTime)); // oldest first: latest for a date wins
 
     const written = [];
     if (sleepGoal) {
       for (const s of sessions) {
-        const date = localDate(s.interval.endTime, s.interval.endUtcOffset);
+        const rawDate = localDate(s.interval.startTime, s.interval.startUtcOffset);
         const sleepTime = localHM(s.interval.startTime, s.interval.startUtcOffset);
         const wakeTime = localHM(s.interval.endTime, s.interval.endUtcOffset);
         const asleepMinutes = s.summary?.minutesAsleep != null ? Number(s.summary.minutesAsleep) : null;
+        // After-midnight start (before noon) belongs to the previous day.
+        const startHour = parseInt(sleepTime.split(":")[0], 10);
+        const date = startHour < 12 ? shiftDay(rawDate, -1) : rawDate;
         setLog(sleepGoal, date, { sleepTime, wakeTime });
         if (asleepMinutes != null) setLog(sleepGoal, date, { asleepMinutes });
         written.push({ date, sleepTime, wakeTime, asleepMinutes });

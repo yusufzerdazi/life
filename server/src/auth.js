@@ -6,11 +6,13 @@ if (!process.env.API_KEY) {
   );
 }
 
-// Accepts the key via "x-api-key: <key>" or "Authorization: Bearer <key>".
+// Accepts the key via "x-api-key: <key>", "Authorization: Bearer <key>", or a
+// "?key=<key>" query param (handy for fire-and-forget requests from the wall
+// device / automations that can't set headers).
 export function requireApiKey(req, res, next) {
   const headerKey = req.get("x-api-key");
   const bearer = (req.get("authorization") || "").replace(/^Bearer\s+/i, "");
-  const provided = headerKey || bearer;
+  const provided = headerKey || bearer || (req.query && req.query.key);
 
   if (provided && provided === API_KEY) return next();
   return res.status(401).json({ error: "Invalid or missing API key" });

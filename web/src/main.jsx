@@ -1,25 +1,19 @@
-import React, { useSyncExternalStore } from "react";
+import React from "react";
 import { createRoot } from "react-dom/client";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import App from "./App.jsx";
 import Dashboard from "./Dashboard.jsx";
 import BedPrompt from "./BedPrompt.jsx";
 import "./index.css"; // Tailwind + Flowbite
 
-const subscribe = (cb) => {
-  window.addEventListener("popstate", cb);
-  return () => window.removeEventListener("popstate", cb);
-};
-const getPath = () => window.location.pathname.replace(/\/+$/, "");
-
-function Root() {
-  const path = useSyncExternalStore(subscribe, getPath);
-  if (path === "/dashboard") return <Dashboard />;
-  if (path === "/bed") return <BedPrompt />;
-  return <App />;
-}
-
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <Root />
+    <BrowserRouter>
+      <Routes>
+        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/bed" element={<BedPrompt />} />
+        <Route path="*" element={<App />} />
+      </Routes>
+    </BrowserRouter>
   </React.StrictMode>
 );

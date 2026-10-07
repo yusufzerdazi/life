@@ -56,6 +56,10 @@ export function sleepMinutes(bed, wake) {
 // Duration is based on time in bed (bed->up phone charge); only when those
 // aren't reported does it fall back to tracked asleep, then sleep->wake.
 // Wake prefers the Health "wake"; falls back to the phone "up" time.
+//
+// Success (`met`) is based on BED TIME only — bed during the evening and before
+// the cutoff. Duration and wake are still computed for display, but they don't
+// gate completion.
 function sleepCriteria(bed, up, sleepStart, wake, asleep) {
   const asleepSpan = sleepMinutes(sleepStart, wake);
   const inBed = sleepMinutes(bed, up);
@@ -64,7 +68,7 @@ function sleepCriteria(bed, up, sleepStart, wake, asleep) {
   const durationOk = effective != null && effective >= SLEEP_TARGET.minMinutes;
   const bedOk = !!bed && minutes(bed) >= EVENING_START && minutes(bed) < minutes(SLEEP_TARGET.bedBefore);
   const wakeOk = !!effectiveWake && minutes(effectiveWake) < minutes(SLEEP_TARGET.wakeBefore);
-  return { durationOk, bedOk, wakeOk, met: durationOk && bedOk && wakeOk };
+  return { durationOk, bedOk, wakeOk, met: bedOk };
 }
 
 // Build the API-facing shape for a goal's entry on a given day.
@@ -82,13 +86,19 @@ export function formatDayGoal(row) {
   } else if (row.kind === "exercise") {
     base.ran = !!row.ran;
     base.workedOut = !!row.worked_out;
+  } else if (row.kind === "avoid") {
+    // Abstinence goal. Tri-state: no log row yet = pending (not confirmed),
+    // row with done=1 = stayed clean, row with done=0 = slipped.
+    base.private = !!row.is_private;
+    base.status = row.logged ? (row.done ? "clean" : "slipped") : "pending";
   }
   // check goals are simply done / not-done — no extra fields.
   return base;
 }
 
 function formatEntry(goal, row) {
-  return formatDayGoal({ id: goal.id, name: goal.name, kind: goal.kind, ...row });
+  // A just-written row exists, so it's logged; carry the goal's privacy flag.
+  return formatDayGoal({ id: goal.id, name: goal.name, kind: goal.kind, is_private: goal.is_private, logged: 1, ...row });
 }
 
 // Merge-upsert. `fields` keys that are `undefined` are left unchanged.
@@ -176,10 +186,10 @@ export function sleepDayStart(date) {
 export function findGoal(goalRef) {
   if (goalRef === undefined || goalRef === null || goalRef === "") return null;
   if (typeof goalRef === "number" || /^\d+$/.test(String(goalRef))) {
-    return db.prepare("SELECT id, name, kind FROM goals WHERE id = ?").get(Number(goalRef)) || null;
+    return db.prepare("SELECT id, name, kind, is_private FROM goals WHERE id = ?").get(Number(goalRef)) || null;
   }
   return (
-    db.prepare("SELECT id, name, kind FROM goals WHERE name = ? COLLATE NOCASE").get(String(goalRef).trim()) ||
+    db.prepare("SELECT id, name, kind, is_private FROM goals WHERE name = ? COLLATE NOCASE").get(String(goalRef).trim()) ||
     null
   );
 }

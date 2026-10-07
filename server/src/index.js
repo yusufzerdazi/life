@@ -4,12 +4,16 @@ import cors from "cors";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+
+import { installLiveReload } from "./liveReload.js";
 
 import { goalsRouter } from "./routes/goals.js";
 import { dayRouter } from "./routes/day.js";
 import { reportRouter } from "./routes/report.js";
 import { historyRouter } from "./routes/history.js";
 import { integrationsRouter } from "./routes/integrations.js";
+import { presenceRouter } from "./routes/presence.js";
 import { syncWakingUp, wakingUpConfigured } from "./integrations/wakingup.js";
 import { syncGoogleHealth, googleConfigured, googleConnected } from "./integrations/googlehealth.js";
 
@@ -26,12 +30,28 @@ app.use("/api/day", dayRouter);
 app.use("/api/report", reportRouter);
 app.use("/api/history", historyRouter);
 app.use("/api/integrations", integrationsRouter);
+app.use("/api/presence", presenceRouter);
 
 // In production, serve the built React app (web/dist) from the same origin.
 const webDist = join(__dirname, "..", "..", "web", "dist");
 if (existsSync(webDist)) {
-  app.use(express.static(webDist));
-  app.get("*", (_req, res) => res.sendFile(join(webDist, "index.html")));
+  // With LIVE_RELOAD=1 (`npm run live`), inject a reload script into index.html
+  // and let static skip it; otherwise serve index.html straight from static.
+  const live = process.env.LIVE_RELOAD ? installLiveReload(app, { dir: webDist }) : null;
+  const indexPath = join(webDist, "index.html");
+  app.use(express.static(webDist, { index: live ? false : "index.html" }));
+  app.get("*", async (_req, res, next) => {
+    if (!live) return res.sendFile(indexPath);
+    try {
+      const html = await readFile(indexPath, "utf8");
+      res.type("html").send(html.replace("</body>", `${live.snippet}</body>`));
+    } catch {
+      // A `vite build --watch` rebuild briefly clears web/dist, so index.html
+      // can be missing for a moment. Serve a placeholder carrying the same
+      // live-reload client; it reloads itself once the new build lands.
+      res.type("html").send(`<!doctype html><meta charset="utf-8"><title>building…</title><body>${live.snippet}</body>`);
+    }
+  });
 }
 
 app.use((err, _req, res, _next) => {

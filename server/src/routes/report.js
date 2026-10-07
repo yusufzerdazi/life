@@ -52,13 +52,19 @@ reportRouter.post("/", requireApiKey, (req, res) => {
       bedTime = strip(bedTime);
       upTime = strip(upTime);
 
-      // Choose the entry date when none was given explicitly. A PM bedtime
-      // belongs to the night you wake the NEXT day.
+      // Choose the entry date when none was given explicitly. A night is
+      // attributed to the day you went to bed (the day that's ending): an
+      // evening bedtime already sits on its own day; an after-midnight bedtime,
+      // or a morning "up" on its own, rolls back to the previous day so it lands
+      // with that night's bed entry.
       if (!req.body?.date) {
         date = eventDate || date;
+        const hourOf = (t) => parseInt(String(t).replace(".", ":").split(":")[0], 10);
         if (bedTime) {
-          const bh = parseInt(String(bedTime).replace(".", ":").split(":")[0], 10);
-          if (Number.isFinite(bh) && bh >= 12) date = shiftDay(date, 1);
+          const bh = hourOf(bedTime);
+          if (Number.isFinite(bh) && bh < 12) date = shiftDay(date, -1);
+        } else if (upTime) {
+          date = shiftDay(date, -1);
         }
       }
     } else if (!req.body?.date) {

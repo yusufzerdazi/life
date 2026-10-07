@@ -25,10 +25,16 @@ export const api = {
   // report by goal name (e.g. { goal: "sleep", bedTime: "23:10" }); applies date attribution
   report: (body) => req("POST", "/report", body),
   getGoals: () => req("GET", "/goals"),
-  addGoal: (name, kind = "check") => req("POST", "/goals", { name, kind }),
+  addGoal: (name, kind = "check", isPrivate = false) => req("POST", "/goals", { name, kind, private: isPrivate }),
   renameGoal: (id, name) => req("PATCH", `/goals/${id}`, { name }),
+  updateGoal: (id, fields) => req("PATCH", `/goals/${id}`, fields),
   deleteGoal: (id) => req("DELETE", `/goals/${id}`),
   getHistory: (days = 30) => req("GET", `/history?days=${days}`),
+  // presence = phone-on-wall sessions. start/end are driven by Tasker on the
+  // phone (physical connect/disconnect); the web only marks a bedtime on the
+  // current session (from /bed) and reads the daily total.
+  presenceBed: (date) => req("POST", "/presence/bed", { date }),
+  getPresence: (date) => req("GET", `/presence?date=${date}`),
   integrationsStatus: () => req("GET", "/integrations/status"),
   syncIntegration: (name) => req("POST", `/integrations/${name}/sync`),
   googleAuthUrl: () => req("GET", "/integrations/google/url"),

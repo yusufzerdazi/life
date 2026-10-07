@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Footprints, Dumbbell, Moon, Brain, Flower2, Check, Flame, Target, BatteryCharging } from "lucide-react";
+import { Footprints, Dumbbell, Moon, Brain, Flower2, Check, Flame, Target, SmartphoneNfc, Lock } from "lucide-react";
 import { api } from "./api.js";
 import { useFullscreen, FullscreenButton } from "./fullscreen.jsx";
 
@@ -70,7 +70,7 @@ function Ring({ done, total, pct }) {
   const c = 2 * Math.PI * r;
   return (
     <div className="relative grid shrink-0 place-items-center">
-      <svg viewBox="0 0 130 130" className="w-[clamp(72px,9vw,150px)] -rotate-90">
+      <svg viewBox="0 0 130 130" className="w-[clamp(96px,10vw,150px)] -rotate-90">
         <circle cx="65" cy="65" r={r} strokeWidth="11" className="fill-none stroke-slate-700/50" />
         <circle
           cx="65"
@@ -84,104 +84,111 @@ function Ring({ done, total, pct }) {
         />
       </svg>
       <div className="absolute text-center leading-none">
-        <div className="text-[clamp(1.1rem,2.6vw,2.6rem)] font-bold">{done}</div>
-        <div className="text-[clamp(0.55rem,1vw,0.9rem)] font-medium text-slate-400">of {total}</div>
+        <div className="text-[clamp(1.6rem,3vw,2.6rem)] font-bold">{done}</div>
+        <div className="text-[clamp(0.8rem,1.2vw,0.95rem)] font-semibold text-slate-400">of {total}</div>
       </div>
     </div>
   );
 }
 
-function Chip({ on, icon: Icon, label }) {
-  return (
-    <span
-      className={
-        "inline-flex items-center gap-1.5 rounded-full border px-[clamp(0.5rem,1.3vw,1.1rem)] py-[clamp(0.2rem,0.8vw,0.55rem)] text-[clamp(0.75rem,1.5vw,1.35rem)] " +
-        (on ? "border-emerald-400 bg-emerald-400 font-semibold text-slate-900" : "border-slate-600 text-slate-400")
-      }
-    >
-      <Icon className="size-[1.1em]" />
-      {label}
-    </span>
-  );
-}
+// The centre metric: a count for exercise, the night's duration for sleep, and
+// nothing for plain check goals (the card colour carries the status).
+function CardMetric({ goal, done }) {
+  const sub = done ? "text-slate-700" : "text-slate-400";
 
-function CardBody({ goal }) {
+  if (goal.kind === "exercise") {
+    const n = (goal.ran ? 1 : 0) + (goal.workedOut ? 1 : 0);
+    return <span className="text-5xl font-bold tabular-nums sm:text-6xl lg:text-8xl">{n}/2</span>;
+  }
+
   if (goal.kind === "sleep") {
     const inBed = goal.inBedMinutes;
     const asleep = goal.asleepMinutes != null ? goal.asleepMinutes : minutesBetween(goal.sleepTime, goal.wakeTime);
     const dur = inBed != null ? inBed : asleep;
     const window =
       goal.bedTime && goal.upTime
-        ? `${goal.bedTime} – ${goal.upTime}`
+        ? `${goal.bedTime}–${goal.upTime}`
         : goal.sleepTime && goal.wakeTime
-        ? `${goal.sleepTime} – ${goal.wakeTime}`
-        : "no sleep data";
+        ? `${goal.sleepTime}–${goal.wakeTime}`
+        : null;
+    if (dur == null && !window) return <span className={`text-2xl font-medium sm:text-3xl ${sub}`}>—</span>;
     return (
-      <>
-        <div className="text-[clamp(1.5rem,5.5vw,5rem)] font-bold leading-none">{formatDuration(dur)}</div>
-        <div className="mt-1.5 flex items-center gap-1 truncate text-[clamp(0.75rem,1.5vw,1.3rem)] text-slate-400">
-          {goal.bedTime && goal.upTime && <BatteryCharging className="size-[1.1em]" />} {window}
-          {inBed != null ? " in bed" : ""}
-        </div>
-        {asleep != null && (
-          <div className="mt-0.5 flex items-center gap-1 truncate text-[clamp(0.7rem,1.3vw,1.1rem)] text-slate-500">
-            <Moon className="size-[1.1em]" /> {formatDuration(asleep)} asleep
-          </div>
-        )}
-      </>
-    );
-  }
-  if (goal.kind === "exercise") {
-    return (
-      <div className="flex flex-wrap gap-2">
-        <Chip on={goal.ran} icon={Footprints} label="Run" />
-        <Chip on={goal.workedOut} icon={Dumbbell} label="Workout" />
+      <div className="flex flex-col items-center gap-2">
+        <span className="text-4xl font-bold leading-none tabular-nums sm:text-5xl lg:text-7xl">
+          {dur != null ? formatDuration(dur) : "—"}
+        </span>
+        {window && <span className={`text-xl font-medium tabular-nums sm:text-2xl lg:text-3xl ${sub}`}>{window}</span>}
       </div>
     );
   }
-  return (
-    <div
-      className={
-        "grid size-[clamp(2.75rem,8vw,6rem)] place-items-center rounded-2xl border-2 transition-colors " +
-        (goal.done ? "border-emerald-400 bg-emerald-400 text-slate-900" : "border-slate-600 text-transparent")
-      }
-    >
-      <Check className="size-3/5" strokeWidth={3} />
-    </div>
-  );
+
+  return null; // check goal — colour says it all
 }
 
 function DashCard({ goal, streak }) {
   const a = accentOf(goal);
+  const done = goal.done;
   return (
     <div
       className={
-        "relative flex min-h-0 flex-col justify-between overflow-hidden rounded-[clamp(0.9rem,1.6vw,1.75rem)] border p-[clamp(0.8rem,2.2vw,2rem)] backdrop-blur transition-colors " +
-        (goal.done
-          ? "border-emerald-500/60 bg-emerald-500/10 shadow-[0_0_40px_-12px_rgba(74,222,128,0.45)]"
-          : "border-slate-700/60 bg-slate-800/40")
+        "flex h-full items-center justify-between gap-6 rounded-3xl border-4 p-6 transition-colors sm:p-8 lg:p-10 " +
+        (done
+          ? "border-emerald-300 bg-emerald-400 text-slate-900 shadow-[0_0_70px_-8px_rgba(74,222,128,0.75)]"
+          : "border-slate-700 bg-slate-800/70 text-slate-100")
       }
     >
-      <div className="flex min-w-0 items-center gap-[clamp(0.5rem,1.2vw,1rem)]">
-        <span className={"grid size-[clamp(2rem,3.6vw,3.5rem)] shrink-0 place-items-center rounded-2xl " + (goal.done ? "bg-emerald-500/20" : a.bg)}>
-          <GoalIcon goal={goal} className={"size-[60%] " + (goal.done ? "text-emerald-300" : a.fg)} />
-        </span>
-        <span className="min-w-0 flex-1 truncate text-[clamp(0.95rem,2.2vw,2.1rem)] font-semibold">{goal.name}</span>
+      {/* icon — left */}
+      <span
+        className={
+          "grid size-16 shrink-0 place-items-center rounded-2xl sm:size-24 lg:size-32 " +
+          (done ? "bg-slate-900/15" : a.bg)
+        }
+      >
+        <GoalIcon goal={goal} className={"size-3/5 " + (done ? "text-slate-900" : a.fg)} />
+      </span>
+
+      {/* metric — centre */}
+      <div className="flex min-w-0 flex-1 items-center justify-center text-center">
+        <CardMetric goal={goal} done={done} />
+      </div>
+
+      {/* streak flame — right */}
+      <span className="flex w-16 shrink-0 items-center justify-end gap-1.5 text-3xl font-bold tabular-nums sm:w-20 lg:w-24 lg:text-4xl">
         {streak > 0 && (
-          <span className="flex shrink-0 items-center gap-1 text-[clamp(0.8rem,1.5vw,1.35rem)] text-slate-400">
-            <Flame className="size-[1.1em] text-orange-400" />
-            {streak}
-          </span>
+          <>
+            <Flame className={"size-[1.1em] " + (done ? "text-orange-600" : "text-orange-400")} />
+            <span className={done ? "text-slate-900" : "text-slate-300"}>{streak}</span>
+          </>
         )}
-        {goal.done && (
-          <span className="grid size-[clamp(1.2rem,2.2vw,1.9rem)] shrink-0 place-items-center rounded-full bg-emerald-400 text-slate-900">
-            <Check className="size-3/5" strokeWidth={3} />
-          </span>
-        )}
-      </div>
-      <div className="flex min-h-0 flex-1 flex-col justify-center">
-        <CardBody goal={goal} />
-      </div>
+      </span>
+    </div>
+  );
+}
+
+// A "thing to avoid" chip: clean (emerald) / slipped (red) / pending (slate),
+// with a days-clean streak. Personal items are censored to their first letter.
+function AvoidChip({ goal, streak }) {
+  const label = goal.private ? goal.name.charAt(0).toUpperCase() : goal.name;
+  const tone =
+    goal.status === "clean"
+      ? "border-emerald-400/60 bg-emerald-500/15 text-emerald-300"
+      : goal.status === "slipped"
+      ? "border-red-500/60 bg-red-500/15 text-red-300"
+      : "border-slate-700 bg-slate-800/60 text-slate-400";
+  return (
+    <div
+      title={goal.private ? "private" : goal.name}
+      className={
+        "flex items-center gap-2 rounded-2xl border px-[clamp(0.7rem,1.5vw,1.4rem)] py-[clamp(0.4rem,1vh,0.9rem)] " + tone
+      }
+    >
+      {goal.private && <Lock className="size-[clamp(0.85rem,1.3vw,1.1rem)] opacity-70" />}
+      <span className="text-[clamp(1rem,1.9vw,1.6rem)] font-semibold leading-none">{label}</span>
+      {streak > 0 && (
+        <span className="inline-flex items-center gap-1 text-[clamp(0.85rem,1.5vw,1.3rem)] font-bold tabular-nums">
+          <Flame className="size-[1.1em] text-orange-400" /> {streak}
+        </span>
+      )}
     </div>
   );
 }
@@ -190,6 +197,7 @@ export default function Dashboard() {
   const [date, setDate] = useState(todayStr());
   const [goals, setGoals] = useState([]);
   const [history, setHistory] = useState(null);
+  const [awayMinutes, setAwayMinutes] = useState(null);
   const [clock, setClock] = useState("");
   const [vp, setVp] = useState({ w: window.innerWidth, h: window.innerHeight });
   const { fs, toggle: toggleFs } = useFullscreen();
@@ -208,10 +216,11 @@ export default function Dashboard() {
     const load = () => {
       const t = todayStr();
       setDate(t);
-      Promise.all([api.getDay(t), api.getHistory(30)])
-        .then(([day, hist]) => {
+      Promise.all([api.getDay(t), api.getHistory(30), api.getPresence(t)])
+        .then(([day, hist, presence]) => {
           setGoals(day.goals);
           setHistory(hist);
+          setAwayMinutes(presence?.totalMinutes ?? null);
         })
         .catch(() => {});
     };
@@ -227,9 +236,13 @@ export default function Dashboard() {
     return () => clearInterval(id);
   }, []);
 
-  const doneCount = goals.filter((g) => g.done).length;
-  const pct = goals.length ? Math.round((doneCount / goals.length) * 100) : 0;
-  const { cols, rows } = useMemo(() => bestGrid(goals.length || 1, vp.w, vp.h), [goals.length, vp]);
+  // "Things to avoid" are shown separately and never count toward a perfect day.
+  const cards = useMemo(() => goals.filter((g) => g.kind !== "avoid"), [goals]);
+  const avoids = useMemo(() => goals.filter((g) => g.kind === "avoid"), [goals]);
+
+  const doneCount = cards.filter((g) => g.done).length;
+  const pct = cards.length ? Math.round((doneCount / cards.length) * 100) : 0;
+  const { cols, rows } = useMemo(() => bestGrid(cards.length || 1, vp.w, vp.h), [cards.length, vp]);
 
   const streakOf = useMemo(() => {
     if (!history) return () => 0;
@@ -246,21 +259,26 @@ export default function Dashboard() {
     };
   }, [history]);
 
-  // Last 30 days, summarized: how many goals were done each day (full = all goals).
-  const month = useMemo(() => {
+  // Last 7 days, summarized: how many goals were done each day (full = all
+  // goals). Avoid goals are excluded — they don't count toward a perfect day.
+  const week = useMemo(() => {
     if (!history) return [];
-    const total = history.goals.length || 0;
+    const avoidIds = new Set(history.goals.filter((g) => g.kind === "avoid").map((g) => g.id));
+    const total = history.goals.filter((g) => g.kind !== "avoid").length || 0;
     const byDate = {};
-    for (const l of history.logs) (byDate[l.date] ||= new Set()).add(l.goal_id);
+    for (const l of history.logs) {
+      if (avoidIds.has(l.goal_id)) continue;
+      (byDate[l.date] ||= new Set()).add(l.goal_id);
+    }
     const out = [];
-    for (let i = history.days - 1; i >= 0; i--) {
+    for (let i = 6; i >= 0; i--) {
       const d = shiftDate(todayStr(), -i);
       const done = byDate[d] ? byDate[d].size : 0;
       out.push({ date: d, done, total, full: total > 0 && done >= total });
     }
     return out;
   }, [history]);
-  const perfectDays = month.filter((d) => d.full).length;
+  const perfectDays = week.filter((d) => d.full).length;
 
   const prettyDate = new Date(date + "T00:00:00").toLocaleDateString(undefined, {
     weekday: "long",
@@ -272,10 +290,17 @@ export default function Dashboard() {
     <div className="flex h-[100dvh] w-screen flex-col gap-[clamp(0.6rem,2vh,1.5rem)] overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-[clamp(0.7rem,2.2vw,2.5rem)] font-sans text-slate-100">
       <header className="flex shrink-0 items-center justify-between gap-3">
         <div className="min-w-0">
-          <div className="truncate text-[clamp(1.1rem,4vw,3.75rem)] font-bold leading-tight tracking-tight">
+          <div className="truncate text-[clamp(1.7rem,4.5vw,3.75rem)] font-bold leading-tight tracking-tight">
             {prettyDate}
           </div>
-          <div className="text-[clamp(0.8rem,2vw,1.6rem)] font-medium text-slate-400">{clock}</div>
+          <div className="flex items-center gap-3 text-[clamp(1.15rem,2.2vw,1.6rem)] font-semibold text-slate-300">
+            <span>{clock}</span>
+            {awayMinutes != null && awayMinutes > 0 && (
+              <span className="inline-flex items-center gap-1.5 text-[clamp(0.95rem,1.7vw,1.3rem)] text-slate-400">
+                <SmartphoneNfc className="size-[1.1em]" /> {formatDuration(awayMinutes)} off phone
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex shrink-0 items-center gap-[clamp(0.5rem,1.5vw,1.25rem)]">
           <FullscreenButton fs={fs} toggle={toggleFs} />
@@ -284,35 +309,53 @@ export default function Dashboard() {
       </header>
 
       <div
-        className="grid min-h-0 flex-1 gap-[clamp(0.5rem,1.8vw,1.75rem)]"
+        className="grid min-h-0 flex-1 gap-4 sm:gap-6"
         style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)` }}
       >
-        {goals.map((g) => (
+        {cards.map((g) => (
           <DashCard key={g.id} goal={g} streak={streakOf(g.id)} />
         ))}
       </div>
 
-      {month.length > 0 && (
+      {avoids.length > 0 && (
+        <div className="flex shrink-0 flex-wrap gap-[clamp(0.4rem,0.9vw,1rem)]">
+          {avoids.map((g) => (
+            <AvoidChip key={g.id} goal={g} streak={streakOf(g.id)} />
+          ))}
+        </div>
+      )}
+
+      {week.length > 0 && (
         <div className="shrink-0">
-          <div className="mb-1 flex items-center justify-between text-[clamp(0.65rem,1.3vw,1.05rem)] text-slate-400">
-            <span>Last 30 days</span>
-            <span className="inline-flex items-center gap-1 font-medium text-emerald-400">
-              <Check className="size-[1.1em]" strokeWidth={3} /> {perfectDays} perfect {perfectDays === 1 ? "day" : "days"}
+          <div className="mb-2 flex items-center justify-between text-[clamp(1rem,1.8vw,1.5rem)] font-semibold text-slate-300">
+            <span>Last 7 days</span>
+            <span className="inline-flex items-center gap-1.5 text-emerald-400">
+              <Check className="size-[1.2em]" strokeWidth={3} /> {perfectDays} perfect {perfectDays === 1 ? "day" : "days"}
             </span>
           </div>
-          <div className="flex gap-[clamp(1px,0.3vw,4px)]">
-            {month.map((d) => (
-              <div
-                key={d.date}
-                title={`${d.date}: ${d.done}/${d.total}`}
-                className={
-                  "flex h-[clamp(0.7rem,2.4vh,1.7rem)] flex-1 items-center justify-center rounded-[3px] " +
-                  (d.full ? "bg-emerald-400 text-slate-900" : d.done > 0 ? "bg-emerald-500/30" : "bg-slate-700/40")
-                }
-              >
-                {d.full && <Check className="size-[80%]" strokeWidth={3} />}
-              </div>
-            ))}
+          <div className="flex gap-[clamp(0.4rem,0.9vw,1rem)]">
+            {week.map((d) => {
+              const wd = new Date(d.date + "T00:00:00").toLocaleDateString(undefined, { weekday: "short" });
+              return (
+                <div
+                  key={d.date}
+                  title={`${d.date}: ${d.done}/${d.total}`}
+                  className={
+                    "flex h-[clamp(3rem,8vh,5.5rem)] flex-1 flex-col items-center justify-center gap-1 rounded-2xl " +
+                    (d.full
+                      ? "bg-emerald-400 text-slate-900"
+                      : d.done > 0
+                      ? "bg-emerald-500/25 text-slate-100"
+                      : "bg-slate-700/40 text-slate-400")
+                  }
+                >
+                  <span className="text-[clamp(1.2rem,3vh,2.1rem)] font-bold leading-none">
+                    {d.done}/{d.total}
+                  </span>
+                  <span className="text-[clamp(0.75rem,1.6vh,1.1rem)] font-semibold uppercase tracking-wide">{wd}</span>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

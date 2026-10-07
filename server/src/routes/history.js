@@ -3,7 +3,7 @@ import { db } from "../db.js";
 
 export const historyRouter = Router();
 
-const goalsStmt = db.prepare("SELECT id, name FROM goals ORDER BY sort_order, id");
+const goalsStmt = db.prepare("SELECT id, name, kind FROM goals ORDER BY sort_order, id");
 const logsStmt = db.prepare(
   "SELECT goal_id, date FROM logs WHERE done = 1 AND date >= ? ORDER BY date"
 );

@@ -7,8 +7,9 @@ import { todayStr, isValidDate } from "../util.js";
 export const dayRouter = Router();
 
 const dayStmt = db.prepare(`
-  SELECT g.id, g.name, g.kind,
+  SELECT g.id, g.name, g.kind, g.is_private,
          COALESCE(l.done, 0) AS done,
+         (l.date IS NOT NULL) AS logged,
          l.bed_time, l.up_time, l.sleep_time, l.wake_time, l.asleep_minutes,
          COALESCE(l.ran, 0) AS ran, COALESCE(l.worked_out, 0) AS worked_out
   FROM goals g
@@ -32,7 +33,7 @@ dayRouter.put("/", requireApiKey, (req, res) => {
   const goalId = Number(req.body?.goalId);
   if (!goalId) return res.status(400).json({ error: "goalId is required" });
 
-  const goal = db.prepare("SELECT id, name, kind FROM goals WHERE id = ?").get(goalId);
+  const goal = db.prepare("SELECT id, name, kind, is_private FROM goals WHERE id = ?").get(goalId);
   if (!goal) return res.status(404).json({ error: "Goal not found" });
 
   try {

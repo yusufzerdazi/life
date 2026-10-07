@@ -8,10 +8,11 @@ report progress with plain API calls (curl, iOS Shortcuts, cron, etc.).
 - **Backend:** Node + Express
 - **Database:** SQLite (file-based, zero config) via better-sqlite3
 - **Model:** goals have a kind — `check` (done + optional time), `sleep`
-  (phone-charge bed/up + Google Health sleep/wake/asleep, with a
-  7.5h / bed-before-23:00 / wake-before-08:30 success rule), or `exercise`
-  (run + workout). Exercise, sleep, and yoga auto-fill from Google Health;
-  meditation from Waking Up.
+  (phone-charge bed/up + Google Health sleep/wake/asleep; **success depends only
+  on bedtime** — bed before 23:00 — while duration and wake are shown for info),
+  or `exercise` (run + workout). Exercise, sleep, and yoga auto-fill from Google
+  Health; meditation from Waking Up. A night is attributed to the **day you went
+  to bed** (the day that's ending), so sleep counts toward that day's success.
 
 ## Project layout
 
@@ -62,6 +63,23 @@ npm start         # Express serves the API *and* the built UI on PORT
 
 Then open http://localhost:3001.
 
+## Run (production-style, live-refreshing)
+
+Same single-server setup as above, but it picks up source edits automatically —
+the browser reloads on its own, no manual rebuild/restart:
+
+```bash
+npm run live
+```
+
+It builds the UI once, then rebuilds `web/dist` on web changes (`vite build
+--watch`) and restarts the server on server changes (`node --watch`). The server
+injects a tiny live-reload client into `index.html` that listens on
+`/__livereload` (Server-Sent Events): a rebuilt bundle reloads the page, and a
+server restart reloads it too (the connection drops and reconnects to a fresh
+boot id). This is on only with `LIVE_RELOAD=1`, which `npm run live` sets — plain
+`npm start` stays a clean static server.
+
 ## Wall dashboard
 
 A read-only, glanceable view for a permanent screen (wall tablet / TV) lives at
@@ -80,9 +98,28 @@ views is in-app (no reload), so fullscreen persists from `/bed` back to
 
 Point your phone's "started charging" automation at **`/bed`**. It shows a
 full-screen **"Charging for the night?"** prompt: tap **Yes** to log the current
-time as that night's bedtime (an evening time is attributed to the next day's
-sleep entry automatically), or **No** to dismiss. Either way it returns to
-`/dashboard`. (Yes performs a write, so it uses the bundled `VITE_API_KEY`.)
+time as that night's bedtime (it lands on the day you went to bed — an
+after-midnight time rolls back to the previous day), or **No** to dismiss.
+Either way it returns to `/dashboard`. (Yes performs a write, so it uses the
+bundled `VITE_API_KEY`.)
+
+Tapping **Yes** also marks the current on-the-wall session (see **Presence**
+below) as a bedtime session, so removing the phone in the morning is recorded as
+that night's **up** time.
+
+### Presence — time the phone is on the wall
+
+A **presence session** spans the phone being mounted on the wall. The phone
+itself drives the boundaries (e.g. via **Tasker**): on connect call
+`POST /api/presence/start`, on disconnect call `POST /api/presence/end`. Summed
+per day, session time is **time away from your phone**, shown on the dashboard as
+"… off phone".
+
+Endpoints can take the key in the URL (`…/api/presence/end?key=<API_KEY>`) for
+automations that can't set headers. When a session was marked as bedtime (you
+tapped **Yes** on `/bed` during it), `…/presence/end` also records the moment as
+that night's **up** time. The dashboard only **reads** the daily total and (from
+`/bed`) marks the current session — it never opens or closes sessions.
 
 ### Open it from another device on your network
 
@@ -115,6 +152,10 @@ Reads are open; **writes require the API key** via header
 | PUT    | `/api/day`              | yes  | `{ "goalId", "date"?, ...fields }`   | set a goal's entry for a day         |
 | POST   | `/api/report`           | yes  | `{ "goal", "date"?, ...fields }`     | friendly report by goal id **or name** |
 | GET    | `/api/history?days=30`  | no   | —                                    | done-logs window for streaks/grid    |
+| POST   | `/api/presence/start`   | yes  | —                                    | open a phone-on-wall session         |
+| POST   | `/api/presence/bed`     | yes  | `{ "date"? }`                        | mark current session as bedtime      |
+| POST   | `/api/presence/end`     | yes  | —                                    | close session (→ up time if bedtime) |
+| GET    | `/api/presence?date=…`  | no   | (date defaults to today)             | sessions + total minutes on the wall |
 
 `date` defaults to today.
 
@@ -125,18 +166,24 @@ Reads are open; **writes require the API key** via header
 - `sleep` goals — two independent sources, all times `"HH:MM"` (or `"HH.MM"`), all merge into one entry:
   - **Phone charge** (you report these): `{ "bedTime"? }` when the phone goes on
     charge, `{ "upTime"? }` when it comes off. These also accept a full timestamp
-    `"yyyy-MM-dd HH:mm"` (or with `T`) — the date sets the entry day. A PM
-    `bedTime` (noon–23:59) with no explicit `date` is attributed to the **next
-    day's** entry — the morning you wake — so it lands with that night's
-    up/sleep/wake. Once a `bedTime`/`upTime` is set for a date, **repeat reports
-    for it are discarded** (first one wins, so re-plugging the phone won't move
-    it). Use the UI's sleep editor to correct a value.
+    `"yyyy-MM-dd HH:mm"` (or with `T`) — the date sets the entry day. With no
+    explicit `date`, a night is attributed to the **day you went to bed** (the
+    day that's ending): an evening `bedTime` stays on that day, while an
+    after-midnight `bedTime`, or an `upTime` on its own, rolls back to the
+    previous day so it lands with that night's bed entry. Once a
+    `bedTime`/`upTime` is set for a date, **repeat reports for it are discarded**
+    (first one wins, so re-plugging the phone won't move it). Use the UI's sleep
+    editor to correct a value.
   - **Google Health** (auto): `{ "sleepTime"?, "wakeTime"?, "asleepMinutes"? }`
-    (or `"sleepHours"`) — when you actually slept/woke.
-  `done` is true only when: time in bed ≥ 7.5h (bed→up phone charge; falls back
-  to tracked asleep, then sleep→wake when charge times are missing), **and** bed
-  (on charge) before 23:00, **and** wake before 08:30 (Google Health `wake`,
-  falling back to phone `up`).
+    (or `"sleepHours"`) — when you actually slept/woke. Sessions are attributed
+    to the **day you went to bed** (the day that's ending): an evening start
+    stays on that day, while an after-midnight start (before noon) rolls back to
+    the previous day — the same rule as the phone-charge `bedTime`, so both
+    sleep sources land on the same day.
+  `done` is true **only when bed (on charge) is in the evening and before
+  23:00**. Time in bed (bed→up, falling back to tracked asleep, then
+  sleep→wake) and wake time (Health `wake`, falling back to phone `up`, before
+  08:30) are still computed and shown, but they don't affect completion.
 - `exercise` goals — `{ "ran"?, "workedOut"? }`. `done` = ran **or** workedOut
   (ideally both). Google Health sets these automatically (see below).
 

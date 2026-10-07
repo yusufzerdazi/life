@@ -14,9 +14,12 @@ import {
   Flame,
   RefreshCw,
   Target,
+  Lock,
+  ShieldCheck,
+  X,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { api } from "./api.js";
-import { navigate } from "./nav.js";
 
 function GoalIcon({ goal, className = "size-5 shrink-0 text-slate-400" }) {
   const n = goal.name.toLowerCase();
@@ -56,6 +59,7 @@ const ROW = (done) =>
   }`;
 
 export default function App() {
+  const navigate = useNavigate();
   const [date, setDate] = useState(todayStr());
   const [goals, setGoals] = useState([]);
   const [history, setHistory] = useState(null);
@@ -117,8 +121,11 @@ export default function App() {
     }
   };
 
-  const doneCount = goals.filter((g) => g.done).length;
-  const pct = goals.length ? Math.round((doneCount / goals.length) * 100) : 0;
+  // Avoid goals are tracked separately and don't count toward the daily total.
+  const checkGoals = goals.filter((g) => g.kind !== "avoid");
+  const avoidGoals = goals.filter((g) => g.kind === "avoid");
+  const doneCount = checkGoals.filter((g) => g.done).length;
+  const pct = checkGoals.length ? Math.round((doneCount / checkGoals.length) * 100) : 0;
 
   return (
     <div className="mx-auto max-w-xl px-5 pb-16 pt-8">
@@ -186,13 +193,28 @@ export default function App() {
         </div>
 
         <ul className="flex flex-col gap-2.5">
-          {goals.map((g) => (
+          {checkGoals.map((g) => (
             <li key={g.id}>
               <GoalRow goal={g} busy={busy} onUpdate={updateGoal} />
             </li>
           ))}
           {goals.length === 0 && <li className="py-2 text-sm text-slate-400">No goals yet — add one below.</li>}
         </ul>
+
+        {avoidGoals.length > 0 && (
+          <div className="mt-4 border-t border-slate-700/60 pt-3.5">
+            <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <ShieldCheck size={14} /> Avoiding {isToday ? "today" : "this day"}
+            </div>
+            <ul className="flex flex-col gap-2">
+              {avoidGoals.map((g) => (
+                <li key={g.id}>
+                  <AvoidRow goal={g} busy={busy} onUpdate={updateGoal} />
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         <button onClick={() => setShowManage((s) => !s)} className={`mt-3 ${LINK}`}>
           {showManage ? "Hide goal settings" : "Customize goals"}
@@ -364,17 +386,61 @@ function GoalRow({ goal, busy, onUpdate }) {
   );
 }
 
+// A "thing to avoid" row: tap to cycle clean ↔ slipped for the selected day.
+// pending (unconfirmed) shows neutral; the first tap records a clean/slip.
+function AvoidRow({ goal, busy, onUpdate }) {
+  const clean = goal.status === "clean";
+  const slipped = goal.status === "slipped";
+  const next = clean ? "slipped" : "clean";
+  return (
+    <button
+      onClick={() => onUpdate(goal, { done: next === "clean" }, { status: next, done: next === "clean" })}
+      disabled={busy}
+      className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left transition-colors ${
+        clean
+          ? "border-emerald-500/50 bg-emerald-500/10"
+          : slipped
+          ? "border-red-500/50 bg-red-500/10"
+          : "border-slate-700/60 bg-slate-800/50"
+      }`}
+    >
+      <span
+        className={`grid size-6 shrink-0 place-items-center rounded-md border-2 ${
+          clean
+            ? "border-emerald-400 bg-emerald-400 text-slate-900"
+            : slipped
+            ? "border-red-400 text-red-400"
+            : "border-slate-600 text-transparent"
+        }`}
+      >
+        {slipped ? <X size={13} strokeWidth={3} /> : <Check size={13} strokeWidth={3} />}
+      </span>
+      {goal.private && <Lock size={14} className="shrink-0 text-slate-400" />}
+      <span className="flex-1">{goal.name}</span>
+      <span
+        className={`text-xs font-semibold ${
+          clean ? "text-emerald-400" : slipped ? "text-red-400" : "text-slate-500"
+        }`}
+      >
+        {goal.status || "pending"}
+      </span>
+    </button>
+  );
+}
+
 function ManageGoals({ goals, onChange, setError }) {
   const [name, setName] = useState("");
   const [kind, setKind] = useState("check");
+  const [priv, setPriv] = useState(false);
 
   const add = async (e) => {
     e.preventDefault();
     if (!name.trim()) return;
     try {
-      await api.addGoal(name.trim(), kind);
+      await api.addGoal(name.trim(), kind, kind === "avoid" && priv);
       setName("");
       setKind("check");
+      setPriv(false);
       onChange();
     } catch (err) {
       setError(err.message);
@@ -419,11 +485,23 @@ function ManageGoals({ goals, onChange, setError }) {
           <option value="check">check</option>
           <option value="sleep">sleep</option>
           <option value="exercise">exercise</option>
+          <option value="avoid">avoid</option>
         </select>
         <button type="submit" className="rounded-lg bg-emerald-400 px-4 font-semibold text-slate-900 hover:bg-emerald-300">
           Add
         </button>
       </form>
+      {kind === "avoid" && (
+        <label className="-mt-1 mb-3 flex items-center gap-2 text-xs text-slate-400">
+          <input
+            type="checkbox"
+            checked={priv}
+            onChange={(e) => setPriv(e.target.checked)}
+            className="accent-emerald-400"
+          />
+          <Lock size={12} /> Private — censor to first letter on the wall dashboard
+        </label>
+      )}
       <ul>
         {goals.map((g) => (
           <li key={g.id} className="flex items-center justify-between border-b border-slate-800 py-2 text-sm">
