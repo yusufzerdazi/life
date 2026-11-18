@@ -71,6 +71,14 @@ export const api = {
   // Block one app:<pkg> / site:<domain> until the end of tomorrow.
   blockTomorrow: (key, label) => req("POST", "/blocks/tomorrow", { key, label }),
   getApps: () => req("GET", "/apps"),
+  // Bedtime lights (Hue + Govee) — Android app only.
+  getLights: () => req("GET", "/lights"),
+  testLights: () => req("POST", "/lights/test"),
+  pairHue: () => req("POST", "/lights/hue/pair"),
+  forgetHue: () => req("DELETE", "/lights/hue"),
+  scanGovee: () => req("POST", "/lights/govee/scan"),
+  addGovee: (address) => req("POST", "/lights/govee", { address }),
+  removeGovee: (address) => req("DELETE", `/lights/govee/${encodeURIComponent(address)}`),
   // Screen time — Android app only.
   getUsage: () => req("GET", "/usage"),
 };

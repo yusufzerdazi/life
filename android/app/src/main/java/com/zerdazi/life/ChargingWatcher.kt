@@ -103,6 +103,7 @@ class ChargingWatcher(private val ctx: Context) {
         prefs.edit().putBoolean(KEY_ON_WALL, true).apply()
         LocalApi.async("POST", "/api/presence/start")
         SleepActivity.open(ctx)
+        Lights.check()
     }
 
     private fun unplugged() {
@@ -111,10 +112,14 @@ class ChargingWatcher(private val ctx: Context) {
             Log.i(TAG, "off the wall")
             prefs.edit().putBoolean(KEY_ON_WALL, false).apply()
             LocalApi.async("POST", "/api/presence/end")
+            Lights.check()
         }
     }
 
     companion object {
+        // In sleep mode: charging on the wall.
+        fun onWall(ctx: Context) = ctx.getSharedPreferences("life", Context.MODE_PRIVATE).getBoolean(KEY_ON_WALL, false)
+
         private const val TAG = "LifeCharging"
         private const val KEY_ON_WALL = "onWall"
         private const val WATCH_MS = 20_000L

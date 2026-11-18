@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { api } from "./api.js";
 import { todayStr, shiftDate, formatDuration, minutesBetween, streaks, Mark, useOnSynced } from "./ui.jsx";
 import Blocks from "./Blocks.jsx";
-import { ScreenTime, SyncStatus } from "./Phone.jsx";
+import { Lights, ScreenTime, SyncStatus } from "./Phone.jsx";
 
 export default function App() {
   const navigate = useNavigate();
@@ -135,6 +135,8 @@ export default function App() {
       <History history={history} streakOf={streakOf} />
 
       <Blocks />
+
+      <Lights />
 
       {editing && <ManageGoals goals={goals} onChange={refresh} setError={setError} onDone={() => setEditing(false)} />}
 

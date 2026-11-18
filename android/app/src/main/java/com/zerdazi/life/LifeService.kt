@@ -25,6 +25,7 @@ import java.time.LocalTime
 //  - measures screen time per app and site, and suggests a break after
 //    BREAK_AFTER_MIN on one of them
 //  - turns the screen grayscale in the evening
+//  - flashes the lights red at bedtime until sleep mode (Lights)
 //  - hosts ChargingWatcher (charging while upright → sleep mode)
 //  - polls Google Health + Waking Up
 class LifeService : AccessibilityService() {
@@ -52,6 +53,7 @@ class LifeService : AccessibilityService() {
             flush()
             recheck()
             grayscale()
+            Lights.check()
             handler.postDelayed(this, 15_000)
         }
     }

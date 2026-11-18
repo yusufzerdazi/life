@@ -25,6 +25,13 @@ A native Kotlin app (no framework) that runs **life entirely on the phone**:
   with the logo comes up. "Keep going" asks again 15 minutes later.
 - **Grayscale evenings**: the screen goes grayscale from 22:00 until 05:00.
   This needs a one-off permission grant (see Install).
+- **Bedtime lights**: from 22:00 to 23:00 (`Config.BEDTIME_LIGHTS_*`), until
+  the phone is in sleep mode, the Hue lights and the Govee strip flash red.
+  After that, Hue goes back to how it was and the strip turns off. Set them up
+  under **Bedtime lights** in the app. To pair Hue, press the bridge's button and
+  then tap **Pair**. The app talks to the bridge's local API. **Find strip**
+  scans Bluetooth for the Govee strip and drives it with the reverse-engineered
+  BLE protocol. **Test** flashes them for 20 seconds.
 - **Bedtime review**: the bed prompt shows today's screen time and the apps
   and sites you spent the most time on. "Block tomorrow" blocks one of them
   until 05:00 the day after tomorrow.

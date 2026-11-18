@@ -203,3 +203,115 @@ export function SyncStatus({ onSynced }) {
     </div>
   );
 }
+
+// Bedtime lights: Hue + Govee flash red until the phone is in sleep mode
+// (Android app only).
+export function Lights() {
+  const [s, setS] = useState(null);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(() => api.getLights().then((r) => (setS(r), r)).catch(() => null), []);
+  useEffect(() => {
+    if (native) load();
+  }, [load]);
+
+  // While a scan runs (or the permission prompt is up), keep refreshing.
+  const [watching, setWatching] = useState(false);
+  useEffect(() => {
+    if (!watching) return;
+    const started = Date.now();
+    const id = setInterval(async () => {
+      const r = await load();
+      if (Date.now() - started > 30_000 || (r && !r.govee.scanning && r.govee.permission && Date.now() - started > 3000)) setWatching(false);
+    }, 1500);
+    return () => clearInterval(id);
+  }, [watching, load]);
+
+  if (!native || !s) return null;
+
+  const run = async (fn, done) => {
+    setBusy(true);
+    setNote("");
+    try {
+      const r = await fn();
+      if (r?.error) setNote(r.error);
+      else if (done) setNote(done);
+    } catch (e) {
+      setNote(e.message);
+    }
+    await load();
+    setBusy(false);
+  };
+  const { hue, govee } = s;
+
+  return (
+    <section className="mt-10">
+      <h2 className="label mb-1">Bedtime lights</h2>
+      <p className="mb-3 text-sm text-mute">
+        {s.from}–{s.until}, the lights flash red until the phone is on the wall.
+        {s.alerting && <span className="text-ember"> Flashing now.</span>}
+      </p>
+      <ul className="text-sm">
+        <li className="flex items-baseline justify-between gap-3 border-b border-rule py-2">
+          <span>
+            Hue <span className="text-mute">{hue.paired ? `bridge ${hue.ip}` : "not paired"}</span>
+            {hue.error && <span className="text-slip"> · {hue.error}</span>}
+          </span>
+          {hue.paired ? (
+            <button className="link text-xs" disabled={busy} onClick={() => run(api.forgetHue)}>
+              Forget
+            </button>
+          ) : (
+            <button className="link text-xs" disabled={busy} onClick={() => run(api.pairHue, "Hue paired")}>
+              Pair
+            </button>
+          )}
+        </li>
+        {govee.lights.map((l) => (
+          <li key={l.address} className="flex items-baseline justify-between gap-3 border-b border-rule py-2">
+            <span>
+              Govee <span className="text-mute">{l.name}</span>
+              {l.connected && <span className="text-ok"> · connected</span>}
+              {l.error && <span className="text-slip"> · {l.error}</span>}
+            </span>
+            <button className="link text-xs" disabled={busy} onClick={() => run(() => api.removeGovee(l.address))}>
+              Forget
+            </button>
+          </li>
+        ))}
+        <li className="border-b border-rule py-2">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-mute">{govee.lights.length ? "Another Govee light" : "Govee: none yet"}</span>
+            <button
+              className="link text-xs"
+              disabled={busy || govee.scanning}
+              onClick={() => run(api.scanGovee).then(() => setWatching(true))}
+            >
+              {govee.scanning ? "Looking…" : "Find lights"}
+            </button>
+          </div>
+          {govee.found.length > 0 && (
+            <div className="mt-1 flex flex-wrap gap-3 text-xs text-mute">
+              Add:
+              {govee.found.map((d) => (
+                <button key={d.address} className="link text-xs" onClick={() => run(() => api.addGovee(d.address))}>
+                  {d.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </li>
+      </ul>
+      <div className="mt-2 flex items-baseline justify-between text-xs">
+        <button
+          className="link text-xs"
+          disabled={busy || (!hue.paired && !govee.lights.length)}
+          onClick={() => run(api.testLights, "Flashing for 20 seconds")}
+        >
+          Test
+        </button>
+        {note && <span className={/paired|Flashing/.test(note) ? "text-ok" : "text-slip"}>{note}</span>}
+      </div>
+    </section>
+  );
+}

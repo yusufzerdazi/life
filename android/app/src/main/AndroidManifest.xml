@@ -11,6 +11,9 @@
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS"
         tools:ignore="ProtectedPermissions" />
     <!-- Meditation: Waking Up's sessions, read from Health Connect. -->
+    <!-- Bedtime lights: the Govee strip over Bluetooth LE. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.health.READ_MINDFULNESS" />
     <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />
 
@@ -20,7 +23,9 @@
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
         android:theme="@style/Theme.Life"
-        android:allowBackup="true">
+        android:allowBackup="true"
+        android:usesCleartextTraffic="true">
+        <!-- Cleartext: the Hue bridge's local API is plain HTTP on the home network. -->
 
         <activity
             android:name=".MainActivity"

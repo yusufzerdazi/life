@@ -41,6 +41,11 @@ object Config {
     // (05:00). Needs WRITE_SECURE_SETTINGS, granted once over adb.
     const val GRAYSCALE_FROM = "22:00"
 
+    // Between these times, until the phone is in sleep mode (charging on the
+    // wall), the Hue lights and Govee strip flash red. See Lights.kt.
+    const val BEDTIME_LIGHTS_FROM = "22:00"
+    const val BEDTIME_LIGHTS_UNTIL = "23:00"
+
     // --- Breaks ---
     // After this long on one app or site, ask whether to take a break. Being
     // away from it for BREAK_RESET_MIN starts the count again; "keep going"

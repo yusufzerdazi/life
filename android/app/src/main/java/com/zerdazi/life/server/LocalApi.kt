@@ -70,6 +70,13 @@ object LocalApi {
         m == "POST" && p == listOf("integrations", "wakingup", "sync") -> syncResult(WakingUp.sync())
         // Opens Google's sign-in in the browser; poll integrations/status for the result.
         m == "POST" && p == listOf("integrations", "google", "login") -> ok(GoogleHealth.startLogin(ctx))
+        m == "GET" && p == listOf("lights") -> ok(com.zerdazi.life.Lights.status())
+        m == "POST" && p == listOf("lights", "test") -> { com.zerdazi.life.Lights.test(); ok(JSONObject().put("ok", true)) }
+        m == "POST" && p == listOf("lights", "hue", "pair") -> ok(com.zerdazi.life.Lights.Hue.pair())
+        m == "DELETE" && p == listOf("lights", "hue") -> { com.zerdazi.life.Lights.Hue.forget(); Res(204, null) }
+        m == "POST" && p == listOf("lights", "govee", "scan") -> ok(com.zerdazi.life.Lights.Govee.scan())
+        m == "POST" && p == listOf("lights", "govee") -> { com.zerdazi.life.Lights.Govee.add(b.getString("address")); ok(JSONObject().put("ok", true)) }
+        m == "DELETE" && p.size == 3 && p[0] == "lights" && p[1] == "govee" -> { com.zerdazi.life.Lights.Govee.remove(Uri.decode(p[2])); Res(204, null) }
         m == "GET" && p == listOf("blocks") -> ok(Blocks.list(ctx))
         m == "POST" && p == listOf("blocks") -> Blocks.add(b)
         m == "POST" && p == listOf("blocks", "tomorrow") -> Blocks.tomorrow(b)

@@ -46,6 +46,29 @@ class MainActivity : Activity() {
         setContentView(root)
         LifeWeb.handleBack(this, web)
         web.loadUrl(LifeWeb.url("/"))
+        askBluetooth(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        askBluetooth(intent)
+    }
+
+    // "Find strip" in Lights, without Bluetooth permission yet.
+    private fun askBluetooth(i: Intent?) {
+        // adb shell am start -n com.zerdazi.life/.MainActivity --es goveeName ihoment_H6159_2ABB
+        i?.getStringExtra(EXTRA_GOVEE_NAME)?.let { name ->
+            i.removeExtra(EXTRA_GOVEE_NAME)
+            Thread { Lights.Govee.prefer(name) }.start()
+        }
+        // adb shell am start -n com.zerdazi.life/.MainActivity --es goveeForget Govee_H6076_5508
+        i?.getStringExtra(EXTRA_GOVEE_FORGET)?.let { name ->
+            i.removeExtra(EXTRA_GOVEE_FORGET)
+            Lights.Govee.removeByName(name)
+        }
+        if (i?.getBooleanExtra(EXTRA_ASK_BLUETOOTH, false) != true) return
+        i.removeExtra(EXTRA_ASK_BLUETOOTH)
+        requestPermissions(Lights.Govee.PERMISSIONS, REQUEST_BLUETOOTH)
     }
 
     override fun onResume() {
@@ -103,6 +126,7 @@ class MainActivity : Activity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_HEALTH) lastSync = 0L // onResume follows: sync straight away
+        if (requestCode == REQUEST_BLUETOOTH && Lights.Govee.hasPermission()) Thread { Lights.Govee.scan() }.start()
     }
 
     // Opening the app pulls Google Health + meditation (at most every few
@@ -162,5 +186,9 @@ class MainActivity : Activity() {
     companion object {
         private var lastSync = 0L
         private const val REQUEST_HEALTH = 1
+        private const val REQUEST_BLUETOOTH = 2
+        const val EXTRA_ASK_BLUETOOTH = "askBluetooth"
+        const val EXTRA_GOVEE_NAME = "goveeName"
+        const val EXTRA_GOVEE_FORGET = "goveeForget"
     }
 }
