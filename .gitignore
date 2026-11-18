@@ -19,3 +19,7 @@ auth/
 *.key
 *.p12
 *.pfx
+
+# Database copies in the repo root (hold OAuth tokens)
+/*.sqlite
+/*.sqlite-*

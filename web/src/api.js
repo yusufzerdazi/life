@@ -1,6 +1,31 @@
 const API_KEY = import.meta.env.VITE_API_KEY || "dev-secret-change-me";
 
+// Inside the Android app the API runs on-device: requests go through the
+// LifeNative bridge instead of the network, and come back via __lifeResolve.
+const native = typeof window !== "undefined" ? window.LifeNative : null;
+const pending = new Map();
+let seq = 0;
+if (native) {
+  window.__lifeResolve = (id, status, text) => {
+    const p = pending.get(id);
+    pending.delete(id);
+    if (p) p({ status, text });
+  };
+}
+
+async function nativeReq(method, path, body) {
+  const id = ++seq;
+  const { status, text } = await new Promise((resolve) => {
+    pending.set(id, resolve);
+    native.request(id, method, `/api${path}`, body ? JSON.stringify(body) : "");
+  });
+  const data = text ? JSON.parse(text) : null;
+  if (status >= 400) throw new Error(data?.error || `Request failed (${status})`);
+  return status === 204 ? null : data;
+}
+
 async function req(method, path, body) {
+  if (native) return nativeReq(method, path, body);
   const res = await fetch(`/api${path}`, {
     method,
     headers: {
@@ -37,6 +62,15 @@ export const api = {
   getPresence: (date) => req("GET", `/presence?date=${date}`),
   integrationsStatus: () => req("GET", "/integrations/status"),
   syncIntegration: (name) => req("POST", `/integrations/${name}/sync`),
-  googleAuthUrl: () => req("GET", "/integrations/google/url"),
-  googleConnect: (code) => req("POST", "/integrations/google/callback", { code }),
+  // Opens Google sign-in in the browser — Android app only.
+  googleLogin: () => req("POST", "/integrations/google/login"),
+  // Timed app/site blocks — Android app only.
+  getBlocks: () => req("GET", "/blocks"),
+  addBlock: (block) => req("POST", "/blocks", block),
+  deleteBlock: (id) => req("DELETE", `/blocks/${id}`),
+  // Block one app:<pkg> / site:<domain> until the end of tomorrow.
+  blockTomorrow: (key, label) => req("POST", "/blocks/tomorrow", { key, label }),
+  getApps: () => req("GET", "/apps"),
+  // Screen time — Android app only.
+  getUsage: () => req("GET", "/usage"),
 };

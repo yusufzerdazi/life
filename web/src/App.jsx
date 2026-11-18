@@ -1,62 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  Footprints,
-  Dumbbell,
-  BatteryCharging,
-  BatteryFull,
-  Sunrise,
-  Moon,
-  Brain,
-  Flower2,
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  Flame,
-  RefreshCw,
-  Target,
-  Lock,
-  ShieldCheck,
-  X,
-} from "lucide-react";
+import { ChevronLeft, ChevronRight, Lock } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { api } from "./api.js";
-
-function GoalIcon({ goal, className = "size-5 shrink-0 text-slate-400" }) {
-  const n = goal.name.toLowerCase();
-  let Icon = Target;
-  if (n.includes("run")) Icon = Footprints;
-  else if (n.includes("yoga")) Icon = Flower2;
-  else if (n.includes("medit")) Icon = Brain;
-  else if (goal.kind === "sleep" || n.includes("sleep")) Icon = Moon;
-  else if (goal.kind === "exercise" || n.includes("exercis") || n.includes("workout") || n.includes("gym"))
-    Icon = Dumbbell;
-  return <Icon className={className} />;
-}
-
-function todayStr() {
-  const d = new Date();
-  const tz = d.getTimezoneOffset() * 60000;
-  return new Date(d - tz).toISOString().slice(0, 10);
-}
-
-function shiftDate(dateStr, delta) {
-  const d = new Date(dateStr + "T00:00:00");
-  d.setDate(d.getDate() + delta);
-  const tz = d.getTimezoneOffset() * 60000;
-  return new Date(d - tz).toISOString().slice(0, 10);
-}
-
-function prettyDate(dateStr) {
-  const d = new Date(dateStr + "T00:00:00");
-  return d.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
-}
-
-const CARD = "rounded-2xl border border-slate-700/60 bg-slate-800/40 p-5";
-const LINK = "text-sm text-emerald-400 transition-colors hover:text-emerald-300";
-const ROW = (done) =>
-  `rounded-xl border p-3.5 transition-colors ${
-    done ? "border-emerald-500/50 bg-emerald-500/10" : "border-slate-700/60 bg-slate-800/50"
-  }`;
+import { todayStr, shiftDate, formatDuration, minutesBetween, streaks, Mark, useOnSynced } from "./ui.jsx";
+import Blocks from "./Blocks.jsx";
+import { ScreenTime, SyncStatus } from "./Phone.jsx";
 
 export default function App() {
   const navigate = useNavigate();
@@ -65,8 +13,7 @@ export default function App() {
   const [history, setHistory] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [showManage, setShowManage] = useState(false);
-  const [notice, setNotice] = useState("");
+  const [editing, setEditing] = useState(false);
 
   const isToday = date === todayStr();
 
@@ -84,27 +31,7 @@ export default function App() {
   useEffect(() => {
     refresh();
   }, [refresh]);
-
-  // Handle the Google OAuth redirect (?code=...) once on load.
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get("code");
-    if (!code) return;
-    window.history.replaceState({}, "", window.location.pathname);
-    setNotice("Connecting Google…");
-    api
-      .googleConnect(code)
-      .then((r) => {
-        if (!r.ok) throw new Error(r.reason || "Google connect failed");
-        setNotice("Google connected — syncing health data…");
-        return api.syncIntegration("google");
-      })
-      .then(() => {
-        setNotice("Google Health connected ✓");
-        return refresh();
-      })
-      .catch((e) => setError(e.message));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useOnSynced(refresh);
 
   const updateGoal = async (goal, fields, optimistic = {}) => {
     setGoals((gs) => gs.map((g) => (g.id === goal.id ? { ...g, ...optimistic } : g)));
@@ -121,247 +48,152 @@ export default function App() {
     }
   };
 
-  // Avoid goals are tracked separately and don't count toward the daily total.
+  // Avoid goals are tracked separately and don't count toward the day.
   const checkGoals = goals.filter((g) => g.kind !== "avoid");
   const avoidGoals = goals.filter((g) => g.kind === "avoid");
   const doneCount = checkGoals.filter((g) => g.done).length;
-  const pct = checkGoals.length ? Math.round((doneCount / checkGoals.length) * 100) : 0;
+  const streakOf = useMemo(() => streaks(history), [history]);
+
+  const d = new Date(date + "T00:00:00");
+  const weekday = d.toLocaleDateString(undefined, { weekday: "long" });
+  const dayMonth = d.toLocaleDateString(undefined, { day: "numeric", month: "long" });
 
   return (
-    <div className="mx-auto max-w-xl px-5 pb-16 pt-8">
-      <header className="mb-6">
-        <h1 className="text-3xl font-bold tracking-tight">life</h1>
-        <p className="mt-0.5 text-sm text-slate-400">daily goals tracker</p>
-      </header>
-
-      {error && (
-        <div className="mb-4 rounded-xl border border-red-500/60 bg-red-500/10 px-4 py-2.5 text-sm text-red-300">
-          {error}
-        </div>
-      )}
-      {notice && (
-        <div className="mb-4 rounded-xl border border-emerald-500/60 bg-emerald-500/10 px-4 py-2.5 text-sm text-emerald-300">
-          {notice}
-        </div>
-      )}
-
-      <section className={`mb-5 ${CARD}`}>
-        <div className="flex items-center justify-between gap-3">
-          <button
-            onClick={() => setDate((d) => shiftDate(d, -1))}
-            aria-label="Previous day"
-            className="grid size-10 shrink-0 place-items-center rounded-lg border border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700"
-          >
+    <div className="mx-auto max-w-lg px-6 pb-16 pt-10">
+      <header className="mb-7 flex items-end justify-between gap-4">
+        <label className="relative block min-w-0 cursor-pointer">
+          <div className="text-sm text-dim">
+            {weekday}
+            {!isToday && <span className="text-mute"> · past day</span>}
+          </div>
+          <h1 className="font-display text-[46px] leading-[1.05] tracking-tight">{dayMonth}</h1>
+          {/* the heading itself opens the native date picker */}
+          <input
+            type="date"
+            value={date}
+            max={todayStr()}
+            onChange={(e) => e.target.value && setDate(e.target.value)}
+            className="absolute inset-0 opacity-0"
+            aria-label="Pick a day"
+          />
+        </label>
+        <div className="flex shrink-0 items-center gap-1 pb-1.5 text-dim">
+          {!isToday && (
+            <button onClick={() => setDate(todayStr())} className="mr-2 text-sm hover:text-fg">
+              Today
+            </button>
+          )}
+          <button onClick={() => setDate((x) => shiftDate(x, -1))} aria-label="Previous day" className="grid size-9 place-items-center rounded-full hover:bg-raise hover:text-fg">
             <ChevronLeft size={20} />
           </button>
-          <div className="flex-1 text-center">
-            <div className="text-lg font-semibold">{prettyDate(date)}</div>
-            <input
-              type="date"
-              value={date}
-              max={todayStr()}
-              onChange={(e) => e.target.value && setDate(e.target.value)}
-              className="mt-0.5 bg-transparent text-center text-xs text-slate-400 [color-scheme:dark]"
-            />
-          </div>
-          <button
-            onClick={() => setDate((d) => shiftDate(d, 1))}
-            disabled={isToday}
-            aria-label="Next day"
-            className="grid size-10 shrink-0 place-items-center rounded-lg border border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700 disabled:opacity-30"
-          >
+          <button onClick={() => setDate((x) => shiftDate(x, 1))} disabled={isToday} aria-label="Next day" className="grid size-9 place-items-center rounded-full hover:bg-raise hover:text-fg disabled:opacity-25">
             <ChevronRight size={20} />
           </button>
         </div>
+      </header>
 
-        {!isToday && (
-          <button
-            onClick={() => setDate(todayStr())}
-            className="mx-auto mt-3 block rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-400 hover:bg-slate-800"
-          >
-            Jump to today
-          </button>
-        )}
-
-        <div className="my-5 flex items-center gap-3">
-          <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-800">
-            <div className="h-full rounded-full bg-emerald-400 transition-[width] duration-300" style={{ width: `${pct}%` }} />
+      {checkGoals.length > 0 && (
+        <div className="mb-3 flex items-center gap-4">
+          <div className="flex flex-1 gap-1">
+            {checkGoals.map((g) => (
+              <span key={g.id} className={`h-[3px] flex-1 rounded-full transition-colors ${g.done ? "bg-ok" : "bg-rule"}`} />
+            ))}
           </div>
-          <span className="whitespace-nowrap text-sm text-slate-400">
-            {doneCount} / {goals.length} done
+          <span className="font-display text-2xl leading-none">
+            {doneCount}
+            <span className="text-mute">/{checkGoals.length}</span>
           </span>
         </div>
+      )}
 
-        <ul className="flex flex-col gap-2.5">
-          {checkGoals.map((g) => (
-            <li key={g.id}>
-              <GoalRow goal={g} busy={busy} onUpdate={updateGoal} />
-            </li>
-          ))}
-          {goals.length === 0 && <li className="py-2 text-sm text-slate-400">No goals yet — add one below.</li>}
-        </ul>
+      {error && <p className="mb-3 text-sm text-slip">{error}</p>}
 
-        {avoidGoals.length > 0 && (
-          <div className="mt-4 border-t border-slate-700/60 pt-3.5">
-            <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              <ShieldCheck size={14} /> Avoiding {isToday ? "today" : "this day"}
-            </div>
-            <ul className="flex flex-col gap-2">
-              {avoidGoals.map((g) => (
-                <li key={g.id}>
-                  <AvoidRow goal={g} busy={busy} onUpdate={updateGoal} />
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+      <ul>
+        {checkGoals.map((g) => (
+          <li key={g.id} className="border-b border-rule">
+            <GoalRow goal={g} streak={streakOf(g.id)} busy={busy} onUpdate={updateGoal} />
+          </li>
+        ))}
+        {goals.length === 0 && !error && <li className="py-4 text-sm text-mute">No goals yet.</li>}
+      </ul>
 
-        <button onClick={() => setShowManage((s) => !s)} className={`mt-3 ${LINK}`}>
-          {showManage ? "Hide goal settings" : "Customize goals"}
-        </button>
+      {avoidGoals.length > 0 && (
+        <section className="mt-10">
+          <h2 className="label mb-1">Avoiding</h2>
+          <ul>
+            {avoidGoals.map((g) => (
+              <li key={g.id} className="border-b border-rule">
+                <AvoidRow goal={g} streak={streakOf(g.id)} busy={busy} onUpdate={updateGoal} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
-        {showManage && <ManageGoals goals={goals} onChange={refresh} setError={setError} />}
-      </section>
+      {isToday && <ScreenTime />}
 
-      <History history={history} />
+      <History history={history} streakOf={streakOf} />
 
-      <footer className="flex flex-col items-center gap-2 text-center">
-        <Integrations onSynced={refresh} />
-        <ApiHint />
-        <button className={LINK} onClick={() => navigate("/dashboard")}>
-          Open wall dashboard ↗
-        </button>
+      <Blocks />
+
+      {editing && <ManageGoals goals={goals} onChange={refresh} setError={setError} onDone={() => setEditing(false)} />}
+
+      <footer className="mt-14 flex items-start justify-between gap-4 text-sm">
+        <div className="flex gap-5">
+          {!editing && (
+            <button className="link" onClick={() => setEditing(true)}>
+              Edit goals
+            </button>
+          )}
+          <button className="link" onClick={() => navigate("/dashboard")}>
+            Wall view
+          </button>
+        </div>
+        <SyncStatus onSynced={refresh} />
       </footer>
     </div>
   );
 }
 
-function formatDuration(min) {
-  if (min == null) return "";
-  return `${Math.floor(min / 60)}h ${min % 60}m`;
+function Streak({ n }) {
+  if (!n) return null;
+  return <span className="text-xs text-mute">{n}d</span>;
 }
 
-function minutesBetween(a, b) {
-  if (!a || !b) return null;
-  const m = (t) => {
-    const [h, mm] = t.split(":").map(Number);
-    return h * 60 + mm;
-  };
-  let d = m(b) - m(a);
-  if (d <= 0) d += 1440;
-  return d;
-}
-
-function Crit({ ok, children }) {
-  return (
-    <span
-      className={`rounded-md border px-1.5 py-0.5 text-[11px] ${
-        ok ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-400" : "border-slate-700 text-slate-400"
-      }`}
-    >
-      {children}
-    </span>
-  );
-}
-
-function TimeField({ icon, label, value, field, goal, onUpdate }) {
-  // Note: intentionally NOT disabled while saving — toggling `disabled` mid-edit
-  // blurs the input, so the picker would lose focus on every keystroke.
-  return (
-    <label className="flex flex-col gap-1 text-xs text-slate-400">
-      <span className="inline-flex items-center gap-1.5">
-        {icon} {label}
-      </span>
-      <input
-        type="time"
-        value={value || ""}
-        onChange={(e) => onUpdate(goal, { [field]: e.target.value }, { [field]: e.target.value })}
-        className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-[15px] text-slate-100 [color-scheme:dark]"
-      />
-    </label>
-  );
-}
-
-function Lane({ on, icon: Icon, label, onClick, disabled }) {
+function Toggle({ on, onClick, disabled, children }) {
   return (
     <button
       onClick={onClick}
       disabled={disabled}
-      className={`flex items-center gap-3 rounded-lg border px-3.5 py-3 text-left transition-colors ${
-        on ? "border-emerald-500/50 bg-emerald-500/10" : "border-slate-700 bg-slate-900/50"
+      className={`rounded-full border px-3 py-1 text-[13px] transition-colors ${
+        on ? "border-ok bg-ok text-night" : "border-rule text-dim hover:text-fg"
       }`}
     >
-      <Icon size={18} className={on ? "text-emerald-400" : "text-slate-400"} />
-      <span className="flex-1">{label}</span>
-      <span
-        className={`grid size-5 place-items-center rounded-md border-2 ${
-          on ? "border-emerald-400 bg-emerald-400 text-slate-900" : "border-slate-600 text-transparent"
-        }`}
-      >
-        <Check size={13} strokeWidth={3} />
-      </span>
+      {children}
     </button>
   );
 }
 
-function GoalRow({ goal, busy, onUpdate }) {
-  if (goal.kind === "sleep") {
-    const c = goal.criteria || {};
-    const t = goal.target || { minMinutes: 450, bedBefore: "23:00", wakeBefore: "08:30" };
-    const asleep = goal.asleepMinutes != null ? goal.asleepMinutes : minutesBetween(goal.sleepTime, goal.wakeTime);
-    const parts = [];
-    if (goal.inBedMinutes != null) parts.push(`${formatDuration(goal.inBedMinutes)} in bed`);
-    if (asleep != null) parts.push(`${formatDuration(asleep)} asleep`);
-    const duration = parts.join(" · ");
-    return (
-      <div className={`flex flex-col gap-3 ${ROW(goal.done)}`}>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="inline-flex items-center gap-2 font-medium">
-            <GoalIcon goal={goal} /> {goal.name}
-          </span>
-          {duration && <span className="text-sm font-semibold text-emerald-400">{duration}</span>}
-        </div>
-        <div className="grid grid-cols-2 gap-2.5">
-          <TimeField icon={<BatteryCharging size={14} />} label="Bed (charge)" value={goal.bedTime} field="bedTime" goal={goal} busy={busy} onUpdate={onUpdate} />
-          <TimeField icon={<BatteryFull size={14} />} label="Up (charge)" value={goal.upTime} field="upTime" goal={goal} busy={busy} onUpdate={onUpdate} />
-          <TimeField icon={<Moon size={14} />} label="Sleep (Health)" value={goal.sleepTime} field="sleepTime" goal={goal} busy={busy} onUpdate={onUpdate} />
-          <TimeField icon={<Sunrise size={14} />} label="Wake (Health)" value={goal.wakeTime} field="wakeTime" goal={goal} busy={busy} onUpdate={onUpdate} />
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          <Crit ok={c.durationOk}>≥ {Math.round((t.minMinutes / 60) * 10) / 10}h in bed</Crit>
-          <Crit ok={c.bedOk}>bed &lt; {t.bedBefore}</Crit>
-          <Crit ok={c.wakeOk}>wake &lt; {t.wakeBefore}</Crit>
-        </div>
-      </div>
-    );
-  }
+function GoalRow({ goal, streak, busy, onUpdate }) {
+  if (goal.kind === "sleep") return <SleepRow goal={goal} streak={streak} onUpdate={onUpdate} />;
 
   if (goal.kind === "exercise") {
     return (
-      <div className={`flex flex-col gap-2.5 ${ROW(goal.done)}`}>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="inline-flex items-center gap-2 font-medium">
-            <GoalIcon goal={goal} /> {goal.name}
-          </span>
-          {goal.ran && goal.workedOut && <span className="text-sm font-semibold text-emerald-400">run + workout</span>}
-        </div>
-        <div className="flex flex-col gap-2">
-          <Lane
-            on={goal.ran}
-            icon={Footprints}
-            label="Run"
-            disabled={busy}
-            onClick={() => onUpdate(goal, { ran: !goal.ran }, { ran: !goal.ran, done: !goal.ran || goal.workedOut })}
-          />
-          <Lane
+      <div className="flex items-center gap-4 py-4">
+        <Mark state={goal.done} />
+        <span className="flex-1 text-[17px]">{goal.name}</span>
+        <Streak n={streak} />
+        <div className="flex gap-1.5">
+          <Toggle on={goal.ran} disabled={busy} onClick={() => onUpdate(goal, { ran: !goal.ran }, { ran: !goal.ran, done: !goal.ran || goal.workedOut })}>
+            run
+          </Toggle>
+          <Toggle
             on={goal.workedOut}
-            icon={Dumbbell}
-            label="Workout"
             disabled={busy}
-            onClick={() =>
-              onUpdate(goal, { workedOut: !goal.workedOut }, { workedOut: !goal.workedOut, done: goal.ran || !goal.workedOut })
-            }
-          />
+            onClick={() => onUpdate(goal, { workedOut: !goal.workedOut }, { workedOut: !goal.workedOut, done: goal.ran || !goal.workedOut })}
+          >
+            gym
+          </Toggle>
         </div>
       </div>
     );
@@ -371,207 +203,126 @@ function GoalRow({ goal, busy, onUpdate }) {
     <button
       onClick={() => onUpdate(goal, { done: !goal.done }, { done: !goal.done })}
       disabled={busy}
-      className={`flex w-full items-center gap-3.5 text-left ${ROW(goal.done)}`}
+      className="flex w-full items-center gap-4 py-4 text-left"
     >
-      <span
-        className={`grid size-7 shrink-0 place-items-center rounded-lg border-2 ${
-          goal.done ? "border-emerald-400 bg-emerald-400 text-slate-900" : "border-slate-600 text-transparent"
-        }`}
-      >
-        <Check size={16} strokeWidth={3} />
-      </span>
-      <GoalIcon goal={goal} />
-      <span className={goal.done ? "text-slate-400 line-through" : ""}>{goal.name}</span>
+      <Mark state={goal.done} />
+      <span className={`flex-1 text-[17px] transition-colors ${goal.done ? "text-dim" : ""}`}>{goal.name}</span>
+      <Streak n={streak} />
     </button>
   );
 }
 
-// A "thing to avoid" row: tap to cycle clean ↔ slipped for the selected day.
-// pending (unconfirmed) shows neutral; the first tap records a clean/slip.
-function AvoidRow({ goal, busy, onUpdate }) {
-  const clean = goal.status === "clean";
-  const slipped = goal.status === "slipped";
-  const next = clean ? "slipped" : "clean";
-  return (
-    <button
-      onClick={() => onUpdate(goal, { done: next === "clean" }, { status: next, done: next === "clean" })}
-      disabled={busy}
-      className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left transition-colors ${
-        clean
-          ? "border-emerald-500/50 bg-emerald-500/10"
-          : slipped
-          ? "border-red-500/50 bg-red-500/10"
-          : "border-slate-700/60 bg-slate-800/50"
-      }`}
-    >
-      <span
-        className={`grid size-6 shrink-0 place-items-center rounded-md border-2 ${
-          clean
-            ? "border-emerald-400 bg-emerald-400 text-slate-900"
-            : slipped
-            ? "border-red-400 text-red-400"
-            : "border-slate-600 text-transparent"
-        }`}
-      >
-        {slipped ? <X size={13} strokeWidth={3} /> : <Check size={13} strokeWidth={3} />}
-      </span>
-      {goal.private && <Lock size={14} className="shrink-0 text-slate-400" />}
-      <span className="flex-1">{goal.name}</span>
-      <span
-        className={`text-xs font-semibold ${
-          clean ? "text-emerald-400" : slipped ? "text-red-400" : "text-slate-500"
-        }`}
-      >
-        {goal.status || "pending"}
-      </span>
-    </button>
-  );
-}
-
-function ManageGoals({ goals, onChange, setError }) {
-  const [name, setName] = useState("");
-  const [kind, setKind] = useState("check");
-  const [priv, setPriv] = useState(false);
-
-  const add = async (e) => {
-    e.preventDefault();
-    if (!name.trim()) return;
-    try {
-      await api.addGoal(name.trim(), kind, kind === "avoid" && priv);
-      setName("");
-      setKind("check");
-      setPriv(false);
-      onChange();
-    } catch (err) {
-      setError(err.message);
-    }
-  };
-
-  const rename = async (goal) => {
-    const next = window.prompt("Rename goal", goal.name);
-    if (next === null || !next.trim()) return;
-    try {
-      await api.renameGoal(goal.id, next.trim());
-      onChange();
-    } catch (err) {
-      setError(err.message);
-    }
-  };
-
-  const remove = async (goal) => {
-    if (!window.confirm(`Delete "${goal.name}" and all its history?`)) return;
-    try {
-      await api.deleteGoal(goal.id);
-      onChange();
-    } catch (err) {
-      setError(err.message);
-    }
-  };
+// Collapsed: the night at a glance. Tap to edit the four times.
+function SleepRow({ goal, streak, onUpdate }) {
+  const [open, setOpen] = useState(false);
+  const c = goal.criteria || {};
+  const t = goal.target || { minMinutes: 450, bedBefore: "23:00", wakeBefore: "08:30" };
+  const asleep = goal.asleepMinutes != null ? goal.asleepMinutes : minutesBetween(goal.sleepTime, goal.wakeTime);
+  const span = goal.bedTime || goal.upTime ? [goal.bedTime, goal.upTime] : [goal.sleepTime, goal.wakeTime];
+  const summary = span[0] || span[1] ? `${span[0] || "–"} → ${span[1] || "–"}` : "not logged";
+  const dur = goal.inBedMinutes ?? asleep;
 
   return (
-    <div className="mt-3.5 border-t border-slate-700/60 pt-3.5">
-      <form onSubmit={add} className="mb-3 flex gap-2">
-        <input
-          placeholder="New goal name…"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
-        />
-        <select
-          value={kind}
-          onChange={(e) => setKind(e.target.value)}
-          className="rounded-lg border border-slate-700 bg-slate-800 px-2 text-sm text-slate-100 [color-scheme:dark]"
-        >
-          <option value="check">check</option>
-          <option value="sleep">sleep</option>
-          <option value="exercise">exercise</option>
-          <option value="avoid">avoid</option>
-        </select>
-        <button type="submit" className="rounded-lg bg-emerald-400 px-4 font-semibold text-slate-900 hover:bg-emerald-300">
-          Add
-        </button>
-      </form>
-      {kind === "avoid" && (
-        <label className="-mt-1 mb-3 flex items-center gap-2 text-xs text-slate-400">
-          <input
-            type="checkbox"
-            checked={priv}
-            onChange={(e) => setPriv(e.target.checked)}
-            className="accent-emerald-400"
-          />
-          <Lock size={12} /> Private — censor to first letter on the wall dashboard
-        </label>
+    <div>
+      <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-4 py-4 text-left">
+        <Mark state={goal.done} />
+        <span className="flex-1 text-[17px]">{goal.name}</span>
+        <Streak n={streak} />
+        <span className="text-right text-sm leading-tight">
+          <span className={span[0] || span[1] ? "text-fg" : "text-mute"}>{summary}</span>
+          {dur != null && <span className="block text-xs text-mute">{formatDuration(dur)}</span>}
+        </span>
+      </button>
+      {open && (
+        <div className="pb-5 pl-[38px]">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+            <TimeField label="In bed" value={goal.bedTime} field="bedTime" goal={goal} onUpdate={onUpdate} />
+            <TimeField label="Up" value={goal.upTime} field="upTime" goal={goal} onUpdate={onUpdate} />
+            <TimeField label="Asleep (Health)" value={goal.sleepTime} field="sleepTime" goal={goal} onUpdate={onUpdate} />
+            <TimeField label="Woke (Health)" value={goal.wakeTime} field="wakeTime" goal={goal} onUpdate={onUpdate} />
+          </div>
+          <p className="mt-4 text-xs leading-relaxed text-mute">
+            <Crit ok={c.bedOk}>bed before {t.bedBefore}</Crit> · <Crit ok={c.durationOk}>{t.minMinutes / 60}h in bed</Crit> ·{" "}
+            <Crit ok={c.wakeOk}>up before {t.wakeBefore}</Crit>
+            {asleep != null && <> · {formatDuration(asleep)} asleep</>}
+          </p>
+        </div>
       )}
-      <ul>
-        {goals.map((g) => (
-          <li key={g.id} className="flex items-center justify-between border-b border-slate-800 py-2 text-sm">
-            <span>
-              {g.name}
-              {g.kind !== "check" && (
-                <span className="ml-1.5 rounded-md border border-slate-700 px-1.5 py-0.5 text-[11px] text-slate-400">
-                  {g.kind}
-                </span>
-              )}
-            </span>
-            <span className="flex gap-3">
-              <button onClick={() => rename(g)} className={LINK}>
-                rename
-              </button>
-              <button onClick={() => remove(g)} className="text-sm text-red-400 transition-colors hover:text-red-300">
-                delete
-              </button>
-            </span>
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }
 
-function History({ history }) {
+function Crit({ ok, children }) {
+  return <span className={ok ? "text-ok" : ""}>{children}</span>;
+}
+
+function TimeField({ label, value, field, goal, onUpdate }) {
+  // Not disabled while saving — toggling `disabled` mid-edit blurs the input.
+  return (
+    <label className="flex flex-col text-xs text-mute">
+      {label}
+      <input
+        type="time"
+        value={value || ""}
+        onChange={(e) => onUpdate(goal, { [field]: e.target.value }, { [field]: e.target.value })}
+        className="field w-full min-w-0 text-[15px]"
+      />
+    </label>
+  );
+}
+
+// Tap "clean" or "slipped" for the selected day; untouched = not confirmed yet.
+function AvoidRow({ goal, streak, busy, onUpdate }) {
+  const set = (clean) => onUpdate(goal, { done: clean }, { status: clean ? "clean" : "slipped", done: clean });
+  const opt = (active, tone) =>
+    `px-2.5 py-1 text-[13px] transition-colors ${active ? tone : "text-mute hover:text-dim"}`;
+  return (
+    <div className="flex items-center gap-4 py-3">
+      <Mark state={goal.status} />
+      <span className="flex flex-1 items-center gap-1.5 text-[17px]">
+        {goal.name}
+        {goal.private && <Lock size={12} className="text-mute" />}
+      </span>
+      <Streak n={streak} />
+      <div className="flex">
+        <button disabled={busy} onClick={() => set(true)} className={opt(goal.status === "clean", "text-ok")}>
+          clean
+        </button>
+        <button disabled={busy} onClick={() => set(false)} className={opt(goal.status === "slipped", "text-slip")}>
+          slipped
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function History({ history, streakOf }) {
   const grid = useMemo(() => {
     if (!history) return null;
     const dates = [];
     for (let i = history.days - 1; i >= 0; i--) dates.push(shiftDate(todayStr(), -i));
-    const done = new Set(history.logs.map((l) => `${l.goal_id}|${l.date}`));
-    const streak = (goalId) => {
-      let n = 0;
-      let cursor = todayStr();
-      if (!done.has(`${goalId}|${cursor}`)) cursor = shiftDate(cursor, -1);
-      while (done.has(`${goalId}|${cursor}`)) {
-        n++;
-        cursor = shiftDate(cursor, -1);
-      }
-      return n;
-    };
-    return { dates, done, streak };
+    return { dates, done: new Set(history.logs.map((l) => `${l.goal_id}|${l.date}`)) };
   }, [history]);
 
   if (!history || history.goals.length === 0) return null;
 
   return (
-    <section className={`mb-5 ${CARD}`}>
-      <h2 className="mb-3.5 text-base font-semibold text-slate-400">Last {history.days} days</h2>
-      <div className="flex flex-col gap-3.5">
+    <section className="mt-10">
+      <h2 className="label mb-3">Last {history.days} days</h2>
+      <div className="flex flex-col gap-2.5">
         {history.goals.map((g) => (
-          <div key={g.id} className="flex flex-col gap-1.5">
-            <div className="flex justify-between text-[13px]">
-              <span>{g.name}</span>
-              <span className="inline-flex items-center gap-1 text-slate-400">
-                <Flame size={13} className="text-orange-400" /> {grid.streak(g.id)}
-              </span>
-            </div>
-            <div className="flex flex-wrap gap-[3px]">
+          <div key={g.id} className="flex items-center gap-3">
+            <span className="w-24 shrink-0 truncate text-[13px] text-dim">{g.name}</span>
+            <div className="flex flex-1 justify-between">
               {grid.dates.map((d) => (
                 <span
                   key={d}
-                  title={`${g.name} · ${d}`}
-                  className={`size-3 rounded-[3px] ${
-                    grid.done.has(`${g.id}|${d}`) ? "bg-emerald-400" : "border border-slate-700 bg-slate-800"
-                  }`}
+                  title={d}
+                  className={`size-[7px] rounded-full ${grid.done.has(`${g.id}|${d}`) ? (g.kind === "avoid" ? "bg-ok/60" : "bg-ok") : "bg-rule"}`}
                 />
               ))}
             </div>
+            <span className="w-7 shrink-0 text-right text-xs text-mute">{streakOf(g.id) || ""}</span>
           </div>
         ))}
       </div>
@@ -579,127 +330,87 @@ function History({ history }) {
   );
 }
 
-const INTEGRATIONS = [{ key: "wakingup", label: "Meditation (Waking Up)" }];
+const KINDS = [
+  ["check", "Daily"],
+  ["exercise", "Exercise"],
+  ["sleep", "Sleep"],
+  ["avoid", "Avoid"],
+];
 
-function summarize(key, r) {
-  if (!r.ok) return r.needsAuth ? "Connect Google first" : r.reason || "Sync failed";
-  if (r.baseline) return "Baseline saved — future activity will sync";
-  if (key === "wakingup") return r.meditatedToday ? "✓ Meditation marked done" : `No new mindful day (${r.mindfulDays})`;
-  if (key === "google") {
-    const bits = [];
-    if (r.exercise?.ran) bits.push("run");
-    if (r.exercise?.workedOut) bits.push("workout");
-    if (r.exercise?.yoga) bits.push("yoga");
-    if (r.sleep) bits.push(`sleep ${r.sleep.asleepMinutes ?? "?"}m`);
-    return bits.length ? `✓ ${bits.join(", ")}` : "No new data today";
-  }
-  return "Synced";
-}
+function ManageGoals({ goals, onChange, setError, onDone }) {
+  const [name, setName] = useState("");
+  const [kind, setKind] = useState("check");
+  const [priv, setPriv] = useState(false);
 
-function Integrations({ onSynced }) {
-  const [status, setStatus] = useState(null);
-  const [msg, setMsg] = useState({});
-  const [syncing, setSyncing] = useState("");
-
-  const load = () => api.integrationsStatus().then(setStatus).catch(() => {});
-  useEffect(() => {
-    load();
-  }, []);
-
-  if (!status) return null;
-
-  const sync = async (key) => {
-    setSyncing(key);
-    setMsg((m) => ({ ...m, [key]: "Syncing…" }));
+  const run = async (fn) => {
     try {
-      const r = await api.syncIntegration(key);
-      setMsg((m) => ({ ...m, [key]: summarize(key, r) }));
-      await load();
-      onSynced && onSynced();
-    } catch (e) {
-      setMsg((m) => ({ ...m, [key]: e.message }));
-    } finally {
-      setSyncing("");
+      await fn();
+      onChange();
+    } catch (err) {
+      setError(err.message);
     }
   };
 
-  const connectGoogle = async () => {
-    try {
-      const { url } = await api.googleAuthUrl();
-      window.location.href = url;
-    } catch (e) {
-      setMsg((m) => ({ ...m, google: e.message }));
-    }
+  const add = (e) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    run(async () => {
+      await api.addGoal(name.trim(), kind, kind === "avoid" && priv);
+      setName("");
+      setPriv(false);
+    });
   };
 
-  const google = status.google;
-  const others = INTEGRATIONS.filter((i) => status[i.key]?.configured);
-  if (!google?.configured && others.length === 0) return null;
+  const rename = (goal) => {
+    const next = window.prompt("Rename goal", goal.name);
+    if (next && next.trim()) run(() => api.renameGoal(goal.id, next.trim()));
+  };
 
-  const btn = "inline-flex items-center gap-1.5 text-sm text-emerald-400 transition-colors hover:text-emerald-300";
+  const remove = (goal) => {
+    if (window.confirm(`Delete "${goal.name}" and all its history?`)) run(() => api.deleteGoal(goal.id));
+  };
 
   return (
-    <div className="flex flex-col items-center gap-1">
-      {google?.configured &&
-        (google.connected ? (
-          <div>
-            <button className={btn} disabled={syncing === "google"} onClick={() => sync("google")}>
-              <RefreshCw size={13} className={syncing === "google" ? "animate-spin" : ""} /> Sync Google Health
+    <section className="mt-10">
+      <div className="mb-1 flex items-baseline justify-between">
+        <h2 className="label">Goals</h2>
+        <button onClick={onDone} className="link">
+          Done
+        </button>
+      </div>
+      <ul>
+        {goals.map((g) => (
+          <li key={g.id} className="flex items-center gap-3 border-b border-rule py-3 text-[15px]">
+            <span className="flex-1">{g.name}</span>
+            <span className="text-xs text-mute">{KINDS.find(([k]) => k === g.kind)?.[1]}</span>
+            <button onClick={() => rename(g)} className="text-sm text-dim hover:text-fg">
+              Rename
             </button>
-            {msg.google && <div className="text-xs text-slate-400">{msg.google}</div>}
-          </div>
-        ) : (
-          <div>
-            <button className={btn} onClick={connectGoogle}>
-              <RefreshCw size={13} /> Connect Google Health
+            <button onClick={() => remove(g)} className="text-sm text-slip/80 hover:text-slip">
+              Delete
             </button>
-            {msg.google && <div className="text-xs text-slate-400">{msg.google}</div>}
-          </div>
+          </li>
         ))}
-      {others.map((i) => (
-        <div key={i.key}>
-          <button className={btn} disabled={syncing === i.key} onClick={() => sync(i.key)}>
-            <RefreshCw size={13} className={syncing === i.key ? "animate-spin" : ""} /> Sync {i.label}
-          </button>
-          {msg[i.key] && <div className="text-xs text-slate-400">{msg[i.key]}</div>}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function ApiHint() {
-  const [open, setOpen] = useState(false);
-  const origin = typeof window !== "undefined" ? window.location.origin : "";
-  const example = `# Exercise, sleep (sleep/wake) and yoga auto-fill from Google Health.
-# Use the API for phone-charge bed/up times and manual entries.
-# All writes need the header  x-api-key: YOUR_API_KEY
-
-# bed = phone on charge, up = phone off charge (reported separately)
-curl -X POST ${origin}/api/report \\
-  -H "x-api-key: YOUR_API_KEY" -H "Content-Type: application/json" \\
-  -d '{"goal":"sleep","bedTime":"22:50"}'
-curl -X POST ${origin}/api/report -H "x-api-key: YOUR_API_KEY" \\
-  -H "Content-Type: application/json" -d '{"goal":"sleep","upTime":"07:10"}'
-
-# mark a check goal done (e.g. meditation, yoga)
-curl -X POST ${origin}/api/report -H "x-api-key: YOUR_API_KEY" \\
-  -H "Content-Type: application/json" -d '{"goal":"meditation"}'
-
-# exercise: a run and/or a workout
-curl -X POST ${origin}/api/report -H "x-api-key: YOUR_API_KEY" \\
-  -H "Content-Type: application/json" -d '{"goal":"exercise","ran":true}'`;
-
-  return (
-    <div className="w-full">
-      <button className={LINK} onClick={() => setOpen((o) => !o)}>
-        {open ? "Hide" : "Report via API"}
-      </button>
-      {open && (
-        <pre className="mt-2 w-full overflow-x-auto rounded-xl border border-slate-700 bg-slate-900 p-3.5 text-left text-xs text-slate-200">
-          {example}
-        </pre>
+      </ul>
+      <form onSubmit={add} className="mt-4 flex items-end gap-3">
+        <input placeholder="New goal" value={name} onChange={(e) => setName(e.target.value)} className="field min-w-0 flex-1 text-[15px]" />
+        <select value={kind} onChange={(e) => setKind(e.target.value)} className="field w-auto pr-7 text-sm">
+          {KINDS.map(([k, l]) => (
+            <option key={k} value={k} className="bg-raise">
+              {l}
+            </option>
+          ))}
+        </select>
+        <button type="submit" className="rounded-full bg-fg px-4 py-1.5 text-sm font-medium text-night">
+          Add
+        </button>
+      </form>
+      {kind === "avoid" && (
+        <label className="mt-3 flex items-center gap-2 text-xs text-mute">
+          <input type="checkbox" checked={priv} onChange={(e) => setPriv(e.target.checked)} className="rounded border-rule bg-transparent text-ok focus:ring-0" />
+          Private — show only the first letter on the wall view
+        </label>
       )}
-    </div>
+    </section>
   );
 }

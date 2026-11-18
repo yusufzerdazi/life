@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="service_description">Blocks the apps and sites listed in the app\'s config during their scheduled times, and opens sleep mode when the phone is charged while upright.</string>
+    <string name="sleep_mode">Sleep mode</string>
+</resources>

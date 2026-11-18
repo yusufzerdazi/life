@@ -1,0 +1,7 @@
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+secrets.properties
+app/src/main/assets/seed.sqlite*
