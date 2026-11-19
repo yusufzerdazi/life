@@ -26,11 +26,13 @@ A native Kotlin app (no framework) that runs **life entirely on the phone**:
 - **Grayscale evenings**: the screen goes grayscale from 22:00 until 05:00.
   This needs a one-off permission grant (see Install).
 - **Bedtime lights**: from 22:00 to 23:00 (`Config.BEDTIME_LIGHTS_*`), until
-  the phone is in sleep mode, the Hue lights and the Govee strip flash red.
-  After that, Hue goes back to how it was and the strip turns off. Set them up
+  the phone is in sleep mode, the Hue lights and the Govee lights pulse red
+  together in a slow 4-second breath. When the phone goes on the wall, the
+  lights that were on go dim warm yellow and the rest stay off. At 23:00
+  without that, Hue goes back to how it was and Govee turns off. Set them up
   under **Bedtime lights** in the app. To pair Hue, press the bridge's button and
-  then tap **Pair**. The app talks to the bridge's local API. **Find strip**
-  scans Bluetooth for the Govee strip and drives it with the reverse-engineered
+  then tap **Pair**. The app talks to the bridge's local API. **Find lights**
+  scans Bluetooth for Govee lights (any number) and drives it with the reverse-engineered
   BLE protocol. **Test** flashes them for 20 seconds.
 - **Bedtime review**: the bed prompt shows today's screen time and the apps
   and sites you spent the most time on. "Block tomorrow" blocks one of them
@@ -50,7 +52,9 @@ A native Kotlin app (no framework) that runs **life entirely on the phone**:
   `localhost:5173`, a redirect URI registered on the OAuth client. If the OAuth
   consent screen is in "Testing", Google expires the sign-in every 7 days, so
   publish it ("In production") in Google Cloud Console → Audience.
-- **Sleep mode**: when the phone is plugged in while upright (on the wall), the app
+- **Shared blocks**: blocks sync with the life desktop apps (`desktop/`) over
+  the home wifi, under **Devices**. See `desktop/PROTOCOL.md`.
+- **Sleep mode**: when the phone is on a wireless charger while upright (on the wall), the app
   opens a presence session and shows `/bed`, then `/dashboard`. It appears over
   the lock screen and keeps the screen on. Unplugging closes the session, which
   records the up time if you confirmed bed. This replaces the Tasker profiles.

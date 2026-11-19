@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { api } from "./api.js";
 import { todayStr, shiftDate, formatDuration, minutesBetween, streaks, Mark, useOnSynced } from "./ui.jsx";
 import Blocks from "./Blocks.jsx";
+import SyncPanel from "./SyncPanel.jsx";
 import { Lights, ScreenTime, SyncStatus } from "./Phone.jsx";
 
 export default function App() {
@@ -135,6 +136,8 @@ export default function App() {
       <History history={history} streakOf={streakOf} />
 
       <Blocks />
+
+      <SyncPanel />
 
       <Lights />
 

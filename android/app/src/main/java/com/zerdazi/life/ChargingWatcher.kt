@@ -18,7 +18,7 @@ import kotlin.math.abs
 import kotlin.math.acos
 import kotlin.math.sqrt
 
-// Replaces the Tasker charge automation. Plugged in AND upright (on the wall)
+// Replaces the Tasker charge automation. Wireless charging AND upright (on the wall)
 // → open a presence session + sleep mode. Unplugged → close the session (the
 // local API turns that into the night's "up" time if bed was confirmed).
 //
@@ -80,6 +80,9 @@ class ChargingWatcher(private val ctx: Context) {
                 } else if (uprightSince == 0L) {
                     uprightSince = now
                 } else if (now - uprightSince >= STEADY_MS) {
+                    // Only the wireless charger on the wall counts, not a cable.
+                    // (Wireless can take a moment to be reported: keep watching.)
+                    if (!wireless()) return
                     stopWatching()
                     enterSleepMode()
                 }
@@ -98,12 +101,17 @@ class ChargingWatcher(private val ctx: Context) {
         wakeLock = null
     }
 
+    private fun wireless(): Boolean {
+        val battery = ctx.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) ?: return false
+        return battery.getIntExtra(android.os.BatteryManager.EXTRA_PLUGGED, 0) == android.os.BatteryManager.BATTERY_PLUGGED_WIRELESS
+    }
+
     private fun enterSleepMode() {
         Log.i(TAG, "charging upright → sleep mode")
         prefs.edit().putBoolean(KEY_ON_WALL, true).apply()
         LocalApi.async("POST", "/api/presence/start")
         SleepActivity.open(ctx)
-        Lights.check()
+        Lights.sleepMode()
     }
 
     private fun unplugged() {

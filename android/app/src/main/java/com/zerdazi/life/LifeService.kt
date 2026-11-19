@@ -84,6 +84,7 @@ class LifeService : AccessibilityService() {
 
     override fun onServiceConnected() {
         charging = ChargingWatcher(this).also { it.start() }
+        com.zerdazi.life.server.Sync.start(this)
         registerReceiver(screen, IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_OFF)
             addAction(Intent.ACTION_USER_PRESENT)

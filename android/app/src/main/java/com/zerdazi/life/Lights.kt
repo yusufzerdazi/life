@@ -89,15 +89,25 @@ object Lights {
         loop.run()
     }
 
-    private fun stop() {
+    private fun stop(bedtimeMode: Boolean = false) {
         if (!alerting) return
-        Log.i(TAG, "back to normal")
+        Log.i(TAG, if (bedtimeMode) "bedtime mode" else "back to normal")
         alerting = false
         handler.removeCallbacks(loop)
         Hue.restore()
-        Govee.offAll()
+        if (bedtimeMode) Hue.dim()
+        Govee.offAll(bedtimeMode)
         wake?.let { if (it.isHeld) it.release() }
         wake = null
+    }
+
+    // Phone on the wall: the lights that are on (or were, before any red
+    // pulse) go dim warm yellow; the rest stay off.
+    fun sleepMode() = handler.post {
+        if (alerting) return@post stop(bedtimeMode = true)
+        Log.i(TAG, "bedtime mode")
+        Hue.dim()
+        Govee.dimAll()
     }
 
     fun status(): JSONObject = JSONObject()
@@ -109,6 +119,8 @@ object Lights {
     // --- Philips Hue: the bridge's local (v1) API over the home network ---
     object Hue {
         private const val RED_XY = "[0.675,0.322]"
+        private const val BEDTIME_XY = "[0.52,0.44]" // warm yellow
+        private const val BEDTIME_BRI = 60 // of 254
         @Volatile private var error: String? = null
         private var saved: JSONObject? = null
 
@@ -165,6 +177,17 @@ object Lights {
         fun fade(up: Boolean, ms: Long) {
             val t = ((ms - 100) / 100).coerceAtLeast(0)
             api("PUT", "/groups/0/action", """{"on":true,"bri":${if (up) 254 else 20},"xy":$RED_XY,"transitiontime":$t}""")
+        }
+
+        // Lights that are on → dim warm yellow (xy for colour bulbs, ct for
+        // white-only ones; each ignores what it can't do).
+        fun dim() {
+            val lights = api("GET", "/lights")?.let { runCatching { JSONObject(it) }.getOrNull() } ?: return
+            for (id in lights.keys()) {
+                val s = lights.optJSONObject(id)?.optJSONObject("state") ?: continue
+                if (!s.optBoolean("on")) continue
+                api("PUT", "/lights/$id/state", """{"bri":$BEDTIME_BRI,"xy":$BEDTIME_XY,"ct":454,"transitiontime":30}""")
+            }
         }
 
         fun restore() {
@@ -311,8 +334,15 @@ object Lights {
             for (a in c.keys()) lights.getOrPut(a) { Light(a, c.getString(a)) }.flash()
         }
 
-        // Off at the end: it's bedtime either way.
-        fun offAll() = lights.values.forEach { it.off() }
+        // At the end of the pulse: off, or dim warm yellow if it was on
+        // before the pulse started (bedtime mode).
+        fun offAll(bedtimeMode: Boolean = false) = lights.values.forEach { if (bedtimeMode && it.wasOn == true) it.dim() else it.off() }
+
+        // Not pulsing: the ones that are on → dim warm yellow.
+        fun dimAll() {
+            val c = chosen()
+            for (a in c.keys()) lights.getOrPut(a) { Light(a, c.getString(a)) }.dim(onlyIfOn = true)
+        }
 
         private fun packet(vararg b: Int) = ByteArray(20).also { p ->
             b.forEachIndexed { i, v -> p[i] = v.toByte() }
@@ -334,19 +364,25 @@ object Lights {
             private var writing = false
             var error: String? = null
             val ready get() = char != null
+            // Power state from the light's reply to 0xAA 0x01, before we touch it.
+            var wasOn: Boolean? = null
+            private var dimming = false
+            private var dimOnlyIfOn = false
 
             // The colour command differs by model (sub-commands from
             // homebridge-govee's ble-protocol.js): 0x02 on the first strips
             // (H6127, H6113…), 0x15 0x01 "extended" on the floor lamps and
             // RGBIC strips (H6072, H6076, H6053, H6199…), 0x0D on most others.
-            fun red(): ByteArray = when {
+            fun colour(r: Int, g: Int, b: Int): ByteArray = when {
                 // RGB, then "white off" and a white colour, as the Govee app sends it.
                 model in setOf("H6127", "H6113", "H6107", "H6116", "H6125", "H6138", "H6139", "H6159", "H6160", "H6163", "H6181", "H6182") ->
-                    packet(0x33, 0x05, 0x02, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0xAE, 0x54)
+                    packet(0x33, 0x05, 0x02, r, g, b, 0x00, 0xFF, 0xAE, 0x54)
                 model.startsWith("H60") || model in setOf("H6199", "H6195", "H6143", "H6144") ->
-                    packet(0x33, 0x05, 0x15, 0x01, 0xFF, 0x00, 0x00, 0, 0, 0, 0, 0, 0xFF, 0x7F)
-                else -> packet(0x33, 0x05, 0x0D, 0xFF, 0x00, 0x00)
+                    packet(0x33, 0x05, 0x15, 0x01, r, g, b, 0, 0, 0, 0, 0, 0xFF, 0x7F)
+                else -> packet(0x33, 0x05, 0x0D, r, g, b)
             }
+
+            fun red() = colour(0xFF, 0x00, 0x00)
 
             private val callback = object : BluetoothGattCallback() {
                 override fun onConnectionStateChange(g: BluetoothGatt, status: Int, state: Int) {
@@ -362,7 +398,7 @@ object Lights {
                         // (HCI 0x3E): try again straight away, a few times.
                         Log.i(TAG, "$name: link dropped ($status), attempt $attempts")
                         close()
-                        if (flashing && attempts < 6) handler.postDelayed({ if (flashing && gatt == null) connect() }, 600)
+                        if ((flashing || dimming) && attempts < 6) handler.postDelayed({ if ((flashing || dimming) && gatt == null) connect() }, 600)
                         else error = "Couldn’t connect"
                     }
                 }
@@ -380,7 +416,11 @@ object Lights {
                             n.getDescriptor(CCCD)?.let { d -> g.writeDescriptor(d, android.bluetooth.BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) }
                             writing = true // wait for the descriptor write before the first packet
                         }
-                        if (flashing) {
+                        if (dimming) {
+                            send(packet(0xAA, 0x01)) // power state: the reply decides
+                            // No reply (some models don't answer): leave it be.
+                            handler.postDelayed({ if (dimming) { dimming = false; if (!dimOnlyIfOn) applyDim() else close() } }, 3000)
+                        } else if (flashing) {
                             send(packet(0xAA, 0x01)) // asks for the power state
                             send(packet(0x33, 0x01, 0x01)) // on
                             send(red())
@@ -399,6 +439,12 @@ object Lights {
 
                 override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic, value: ByteArray) {
                     if (debug > 0) Log.i(TAG, "$name: reply ${hex(value)}")
+                    // aa 01 01 = on, aa 01 00 = off
+                    if (value.size > 2 && value[0] == 0xAA.toByte() && value[1] == 0x01.toByte()) handler.post {
+                        val on = value[2] == 0x01.toByte()
+                        if (wasOn == null) wasOn = on
+                        if (dimming) { dimming = false; if (on || !dimOnlyIfOn) applyDim() else close() }
+                    }
                 }
 
                 override fun onCharacteristicWrite(g: BluetoothGatt, c: BluetoothGattCharacteristic, status: Int) {
@@ -455,6 +501,27 @@ object Lights {
                 if (!flashing) attempts = 0
                 flashing = true
                 if (gatt == null) { if (attempts >= 6) attempts = 0; connect() }
+            }
+
+            // Dim warm yellow. onlyIfOn: only if the light says it's on.
+            fun dim(onlyIfOn: Boolean = false) {
+                flashing = false
+                handler.removeCallbacks(blink)
+                queue.clear()
+                dimOnlyIfOn = onlyIfOn
+                if (char != null && !onlyIfOn) return applyDim()
+                dimming = true
+                if (char != null) { send(packet(0xAA, 0x01)); return }
+                attempts = 0
+                connect()
+                handler.postDelayed({ if (dimming) { dimming = false; close() } }, 20_000)
+            }
+
+            private fun applyDim() {
+                send(packet(0x33, 0x01, 0x01))
+                send(colour(0xFF, 0x96, 0x28)) // warm yellow
+                send(packet(0x33, 0x04, 25))
+                handler.postDelayed({ if (!flashing) close() }, 2000)
             }
 
             fun off() {

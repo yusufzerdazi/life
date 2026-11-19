@@ -24,8 +24,19 @@ async function nativeReq(method, path, body) {
   return status === 204 ? null : data;
 }
 
+// In the desktop app (Tauri), the Rust core answers the same routes.
+const tauri = typeof window !== "undefined" ? window.__TAURI_INTERNALS__ : null;
+
+async function tauriReq(method, path, body) {
+  const { status, text } = await tauri.invoke("api", { method, path: `/api${path}`, body: body ? JSON.stringify(body) : "" });
+  const data = text ? JSON.parse(text) : null;
+  if (status >= 400) throw new Error(data?.error || `Request failed (${status})`);
+  return status === 204 ? null : data;
+}
+
 async function req(method, path, body) {
   if (native) return nativeReq(method, path, body);
+  if (tauri) return tauriReq(method, path, body);
   const res = await fetch(`/api${path}`, {
     method,
     headers: {
@@ -79,6 +90,9 @@ export const api = {
   scanGovee: () => req("POST", "/lights/govee/scan"),
   addGovee: (address) => req("POST", "/lights/govee", { address }),
   removeGovee: (address) => req("DELETE", `/lights/govee/${encodeURIComponent(address)}`),
+  // Devices sharing blocks — Android and desktop apps only.
+  getSync: () => req("GET", "/sync"),
+  setSyncKey: (key) => req("POST", "/sync/key", { key }),
   // Screen time — Android app only.
   getUsage: () => req("GET", "/usage"),
 };

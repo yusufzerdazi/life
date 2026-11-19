@@ -70,6 +70,8 @@ object LocalApi {
         m == "POST" && p == listOf("integrations", "wakingup", "sync") -> syncResult(WakingUp.sync())
         // Opens Google's sign-in in the browser; poll integrations/status for the result.
         m == "POST" && p == listOf("integrations", "google", "login") -> ok(GoogleHealth.startLogin(ctx))
+        m == "GET" && p == listOf("sync") -> ok(Sync.status())
+        m == "POST" && p == listOf("sync", "key") -> { Sync.setKey(b.optString("key")); ok(Sync.status()) }
         m == "GET" && p == listOf("lights") -> ok(com.zerdazi.life.Lights.status())
         m == "POST" && p == listOf("lights", "test") -> { com.zerdazi.life.Lights.test(); ok(JSONObject().put("ok", true)) }
         m == "POST" && p == listOf("lights", "hue", "pair") -> ok(com.zerdazi.life.Lights.Hue.pair())

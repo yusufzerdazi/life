@@ -160,6 +160,16 @@ object Db {
         addColumn("goals", "is_private", "INTEGER NOT NULL DEFAULT 0")
         // One-off blocks (bedtime review): on until this local date-time.
         addColumn("blocks", "until_at", "TEXT")
+        // Synced between devices (Sync.kt): a stable id, last change (epoch
+        // ms), deletions kept as tombstones, desktop app names, who made it.
+        addColumn("blocks", "uid", "TEXT")
+        addColumn("blocks", "updated_at", "INTEGER")
+        addColumn("blocks", "deleted", "INTEGER NOT NULL DEFAULT 0")
+        addColumn("blocks", "labels", "TEXT")
+        addColumn("blocks", "origin", "TEXT")
+        db.execSQL("UPDATE blocks SET uid = lower(hex(randomblob(16))) WHERE uid IS NULL")
+        db.execSQL("UPDATE blocks SET updated_at = CAST(strftime('%s','now') AS INTEGER) * 1000 WHERE updated_at IS NULL")
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS idx_blocks_uid ON blocks(uid)")
 
         // Fresh database: the four default goals plus the "things to avoid".
         val count = db.rawQuery("SELECT COUNT(*) FROM goals", null).use { it.moveToFirst(); it.getLong(0) }

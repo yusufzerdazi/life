@@ -26,12 +26,23 @@ object Blocks {
     // Read on every accessibility event, so cached; any write invalidates it.
     fun all(): List<Entry> = cache ?: load().also { cache = it }
 
+    // After a local change or a sync merge.
+    fun changed(local: Boolean) {
+        cache = null
+        if (local) Sync.soon()
+    }
+
+    // Labels for apps from other devices (Mac bundle ids, Windows .exe names).
+    @Volatile private var labels: Map<String, String> = emptyMap()
+
     private fun load(): List<Entry> {
         val builtIn = Config.BLOCKS.mapIndexed { i, b -> Entry(-(i + 1L), b, true) }
         val now = LocalDateTime.now()
         // Finished one-off blocks are done with.
         Db.exec("DELETE FROM blocks WHERE until_at IS NOT NULL AND until_at <= ?", now.toString())
-        val stored = Db.all("SELECT * FROM blocks ORDER BY id").map { r ->
+        val rows = Db.all("SELECT * FROM blocks WHERE deleted = 0 ORDER BY id")
+        labels = rows.flatMap { r -> (r["labels"] as String?)?.let { l -> JSONObject(l).let { o -> o.keys().asSequence().map { it to o.getString(it) }.toList() } }.orEmpty() }.toMap()
+        val stored = rows.map { r ->
             val days = (r["days"] as String).mapNotNull { it.digitToIntOrNull() }.map { DayOfWeek.of(it) }.toSet()
             Entry(
                 r["id"] as Long,
@@ -104,10 +115,11 @@ object Blocks {
         if (days.isEmpty()) throw ApiError(400, "Pick at least one day")
         if (!Dates.isValidTime(start) || !Dates.isValidTime(end)) throw ApiError(400, "Times must be HH:MM")
         val id = Db.insert(
-            "INSERT INTO blocks (name, apps, sites, days, start_time, end_time) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO blocks (name, apps, sites, days, start_time, end_time, uid, updated_at, origin) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             name, JSONArray(apps).toString(), JSONArray(sites.distinct()).toString(), days.joinToString(""), start, end,
+            java.util.UUID.randomUUID().toString(), System.currentTimeMillis(), Sync.device(),
         )
-        cache = null
+        changed(local = true)
         return Res(201, JSONObject().put("id", id).toString())
     }
 
@@ -122,13 +134,14 @@ object Blocks {
         val until = com.zerdazi.life.Usage.nextReset().plusDays(1)
         val name = b.value("label")?.toString()?.takeIf { it.isNotBlank() } ?: target
         Db.insert(
-            "INSERT INTO blocks (name, apps, sites, days, start_time, end_time, until_at) VALUES (?, ?, ?, '', '00:00', '00:00', ?)",
+            "INSERT INTO blocks (name, apps, sites, days, start_time, end_time, until_at, uid, updated_at, origin) VALUES (?, ?, ?, '', '00:00', '00:00', ?, ?, ?, ?)",
             name,
             JSONArray(if (isApp) listOf(target) else emptyList()).toString(),
             JSONArray(if (isApp) emptyList() else listOf(target)).toString(),
             until.withNano(0).toString(),
+            java.util.UUID.randomUUID().toString(), System.currentTimeMillis(), Sync.device(),
         )
-        cache = null
+        changed(local = true)
         return Res(201, JSONObject().put("ok", true).put("until", until.toString()).toString())
     }
 
@@ -148,8 +161,9 @@ object Blocks {
         Schedule.activeUntil(e.block, LocalDateTime.now())?.let {
             throw ApiError(409, "“${e.block.name}” is on until ${it.toLocalTime()} — you can remove it after that")
         }
-        Db.exec("DELETE FROM blocks WHERE id = ?", id)
-        cache = null
+        // Kept as a tombstone so the deletion syncs.
+        Db.exec("UPDATE blocks SET deleted = 1, updated_at = ? WHERE id = ?", System.currentTimeMillis(), id)
+        changed(local = true)
         return Res(204, null)
     }
 
@@ -168,6 +182,6 @@ object Blocks {
         val pm = ctx.packageManager
         pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
     } catch (_: Exception) {
-        pkg
+        labels[pkg] ?: pkg
     }
 }

@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "life",
+  "version": "0.1.0",
+  "description": "Applies your life blocks to websites. Needs the life desktop app running.",
+  "permissions": ["webNavigation", "tabs", "alarms"],
+  "host_permissions": ["http://127.0.0.1:47711/*"],
+  "background": { "service_worker": "background.js" },
+  "icons": { "128": "icon.png" }
+}
